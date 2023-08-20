@@ -1,14 +1,23 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#![allow(unused_imports)]
+#![allow(dead_code)]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod one_writer_rwlock;
+mod socket;
+pub use socket::*;
+mod stream;
+pub use stream::*;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+use std::{net::SocketAddr, time::Duration, sync::Arc};
+
+use tokio::net::{UdpSocket, ToSocketAddrs};
+use thiserror::Error;
+
+pub const DEFAULT_RTO: Duration = Duration::from_millis(100);
+
+#[derive(Error, Debug)]
+pub enum StridulError {
+    #[error(transparent)]
+    OtherIoError(#[from] tokio::io::Error),
+    #[error(transparent)]
+    BincodeError(#[from] bincode::Error),
 }
