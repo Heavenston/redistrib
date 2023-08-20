@@ -1,0 +1,14 @@
+[profile.dev]
+opt-level = 3
+overflow-checks = false
+debug=true
+
+[profile.release]
+overflow-checks=true
+debug=true
+
+[workspace]
+resolver = "1"
+members = [
+  "stridul"
+]
