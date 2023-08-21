@@ -25,32 +25,37 @@ impl PacketId {
     }
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub(crate) struct AckPack {
+    acked_id: PacketId,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct DataPack {
+    id: PacketId,
+    data: Bytes,
+}
+
 // FIXPERF: Use rkyv ?
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) enum StridulPacket {
-    Ack {
-        acked_id: PacketId,
-    },
-    Data {
-        id: PacketId,
-        data: Bytes,
-    },
+    Ack(AckPack),
+    Data(DataPack),
 }
 
 impl StridulPacket {
     pub fn id(&self) -> PacketId {
         use StridulPacket::*;
         match self {
-            Ack { acked_id: id } |
-            Data { id, .. } => *id,
+            Ack(AckPack { acked_id: id }) |
+            Data(DataPack { id, .. }) => *id,
         }
     }
 
     pub fn id_mut(&mut self) -> &mut PacketId {
         use StridulPacket::*;
         match self {
-            Ack { acked_id: id } |
-            Data { id, .. } => id,
+            Ack(AckPack { acked_id: id }) |
+            Data(DataPack { id, .. }) => id,
         }
     }
 
@@ -64,11 +69,22 @@ impl StridulPacket {
     pub fn data(&self) -> Option<&Bytes> {
         use StridulPacket::*;
         match self {
-            Ack { .. }
+            Ack(..)
                 => None,
-            Data { data, .. }
+            Data(DataPack { data, .. })
                 => Some(data),
         }
+    }
+}
+
+impl From<AckPack> for StridulPacket {
+    fn from(value: AckPack) -> Self {
+        Self::Ack(value)
+    }
+}
+impl From<DataPack> for StridulPacket {
+    fn from(value: DataPack) -> Self {
+        Self::Data(value)
     }
 }
 
@@ -79,7 +95,7 @@ pub struct NewStream {
 
 type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
 pub(crate) struct InFlightPacket {
-    pub packet: StridulPacket,
+    pub packet: DataPack,
     pub addr: SocketAddr,
     pub sent_at: Instant,
     pub rto: Duration,
@@ -125,10 +141,10 @@ impl StridulSocket {
     }
 
     pub(crate) async fn send_raw_reliable(
-        &self, dest: SocketAddr, id: PacketId, data: Bytes,
+        &self, dest: SocketAddr, packet: DataPack,
     ) -> Result<oneshot::Receiver<()>, StridulError> {
-        let packet = StridulPacket::Data { id, data };
-        self.send_raw(&dest, &packet).await?;
+        self.send_raw(&dest, &packet.clone().into()).await?;
+
         let (ack_send, ack_recv) = oneshot::channel();
         self.reliable_in_flight.0.send_async(InFlightPacket {
             packet,
@@ -138,6 +154,7 @@ impl StridulSocket {
             rto: self.base_rto,
             ack_send,
         }).await.ok();
+
         Ok(ack_recv)
     }
 }
@@ -153,7 +170,7 @@ pub struct StridulSocketDriver {
     packets_in_flight: Vec<InFlightPacket>,
     /// List of Acks that had unknown packet ids in case the packet comes
     /// after
-    acks_not_processed: Vec<(PacketId, SocketAddr)>,
+    acks_not_processed: Vec<(AckPack, SocketAddr)>,
 }
 
 impl StridulSocketDriver {
@@ -199,12 +216,12 @@ impl StridulSocketDriver {
                     // Expanential backoff
                     to_retransmit.rto += to_retransmit.rto * 2;
 
-                    let mut new_packet = to_retransmit.packet.clone();
-                    new_packet.id_mut().retransmission
-                        = new_packet.id_mut().retransmission.wrapping_add(1);
+                    let mut new_pack = to_retransmit.packet.clone();
+                    new_pack.id.retransmission
+                        = new_pack.id.retransmission.wrapping_add(1);
                     self.socket.send_raw(
                         &to_retransmit.addr,
-                        &new_packet
+                        &new_pack.into()
                     ).await?;
                 }
 
@@ -243,13 +260,13 @@ impl StridulSocketDriver {
         &mut self, addr: SocketAddr, packet: StridulPacket,
     ) -> Result<ControlFlow<NewStream>, StridulError> {
         match packet {
-            StridulPacket::Ack { acked_id } => {
+            StridulPacket::Ack(pack) => {
                 let Some((acked_packet_pos, _)) =
                     self.packets_in_flight.iter().enumerate()
                     .filter(|(_, x)| x.addr == addr)
-                    .find(|(_, x)| x.packet.id() == acked_id.with_rt(0))
+                    .find(|(_, x)| x.packet.id == pack.acked_id.with_rt(0))
                 else {
-                    self.acks_not_processed.push((acked_id, addr));
+                    self.acks_not_processed.push((pack, addr));
                     return Ok(ControlFlow::Continue(()));
                 };
                 let flying_packet =
@@ -261,13 +278,13 @@ impl StridulSocketDriver {
 
                 log::trace!(
                     "Acked packet {:?} after {:?}",
-                    flying_packet.packet.id(), flying_packet.sent_at.elapsed()
+                    flying_packet.packet.id, flying_packet.sent_at.elapsed()
                 );
             },
-            StridulPacket::Data { id, data } => {
-                self.socket.send_raw(&addr, &StridulPacket::Ack {
+            StridulPacket::Data(DataPack { id, data }) => {
+                self.socket.send_raw(&addr, &AckPack {
                     acked_id: id,
-                }).await?;
+                }.into()).await?;
 
                 let (is_new_stream, stream) = self.streams.get(&addr)
                     .and_then(|addr_streams|
