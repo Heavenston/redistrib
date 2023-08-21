@@ -1,7 +1,11 @@
 use crate::*;
 
-use std::{net::SocketAddr, time::{Duration, Instant}, sync::{Arc, RwLock, Mutex}, collections::HashMap, ops::ControlFlow};
+use std::{
+    net::SocketAddr, time::{Duration, Instant}, sync::{Arc, RwLock, Mutex},
+    collections::HashMap, ops::ControlFlow, mem::size_of
+};
 
+use static_assertions as ca;
 use bincode::Options;
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
@@ -9,7 +13,7 @@ use tokio::{net::{UdpSocket, ToSocketAddrs}, stream, time as ttime, sync::onesho
 use thiserror::Error;
 use futures::future::Either as fEither;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PacketId {
     pub stream_id: StreamID,
     pub sequence_number: u32,
@@ -28,6 +32,7 @@ impl PacketId {
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AckPack {
     pub acked_id: PacketId,
+    pub window_size: u32,
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DataPack {
@@ -46,7 +51,7 @@ impl StridulPacket {
     pub fn id(&self) -> PacketId {
         use StridulPacket::*;
         match self {
-            Ack(AckPack { acked_id: id }) |
+            Ack(AckPack { acked_id: id, .. }) |
             Data(DataPack { id, .. }) => *id,
         }
     }
@@ -54,7 +59,7 @@ impl StridulPacket {
     pub fn id_mut(&mut self) -> &mut PacketId {
         use StridulPacket::*;
         match self {
-            Ack(AckPack { acked_id: id }) |
+            Ack(AckPack { acked_id: id, .. }) |
             Data(DataPack { id, .. }) => id,
         }
     }
@@ -74,6 +79,10 @@ impl StridulPacket {
             Data(DataPack { data, .. })
                 => Some(data),
         }
+    }
+
+    pub fn data_len(&self) -> usize {
+        self.data().map(|b| b.len()).unwrap_or(0)
     }
 }
 
@@ -107,6 +116,7 @@ pub enum CreateStreamError {
 pub struct StridulSocket {
     /// The retransmission timeout
     base_rto: Duration,
+    packet_max_size: u32,
     socket: UdpSocket,
 
     reliable_in_flight: FlumePipe<InFlightPacket>,
@@ -123,6 +133,7 @@ impl StridulSocket {
 
         let this = Arc::new(Self {
             base_rto: DEFAULT_RTO,
+            packet_max_size: 2u32.pow(9), // 512bytes
             socket,
 
             reliable_in_flight: flume::unbounded(),
@@ -135,6 +146,7 @@ impl StridulSocket {
     pub fn listen_addr(&self) -> Result<SocketAddr, StridulError> {
         Ok(self.socket.local_addr()?)
     }
+
 
     pub async fn create_stream(
         self: &Arc<Self>, id: StreamID, peer_addr: SocketAddr,
@@ -155,9 +167,16 @@ impl StridulSocket {
         }
     }
 
+    pub(crate) fn packet_max_size(&self) -> u32 {
+        self.packet_max_size
+    }
+
     pub(crate) async fn send_raw(
         &self, dest: &SocketAddr, packet: &StridulPacket
     ) -> Result<(), StridulError> {
+        ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
+        assert!((packet.data_len() as u128) < (self.packet_max_size as u128));
+
         // FIXPERF: Memory pool to not alocation each time
         let data = bincode::serialize(packet)?;
         let sent = self.socket.send_to(&data, dest).await?;
@@ -168,6 +187,9 @@ impl StridulSocket {
     pub(crate) async fn send_raw_reliable(
         &self, dest: SocketAddr, packet: DataPack,
     ) -> Result<oneshot::Receiver<()>, StridulError> {
+        ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
+        assert!((packet.data.len() as u128) < (self.packet_max_size as u128));
+
         self.send_raw(&dest, &packet.clone().into()).await?;
 
         let (ack_send, ack_recv) = oneshot::channel();
@@ -203,10 +225,10 @@ impl StridulSocketDriver {
         Self {
             socket,
 
-            streams: Default::default(),
+            streams: default(),
 
-            packets_in_flight: Default::default(),
-            acks_not_processed: Default::default(),
+            packets_in_flight: default(),
+            acks_not_processed: default(),
         }
     }
 
@@ -312,6 +334,14 @@ impl StridulSocketDriver {
                     self.acks_not_processed.push((pack, addr));
                     return Ok(ControlFlow::Continue(()));
                 };
+                // Get the stream of the acked packet to notify it of the
+                // acknoledgment
+                let stream = self.streams.get(&addr)
+                    .and_then(|sts| sts.get(&pack.acked_id.stream_id));
+                if let Some(stream) = stream {
+                    stream.handle_ack_pack(pack).await?;
+                }
+                // Remove the packet from the pending-ack list
                 let flying_packet =
                     self.packets_in_flight.remove(acked_packet_pos);
 
@@ -327,6 +357,7 @@ impl StridulSocketDriver {
             StridulPacket::Data(pack) => {
                 self.socket.send_raw(&addr, &AckPack {
                     acked_id: pack.id,
+                    window_size: u32::pow(2, 12) // 4kb
                 }.into()).await?;
 
                 let (is_new_stream, stream) = self.streams.get(&addr)

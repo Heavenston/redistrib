@@ -1,11 +1,11 @@
-use crate::{StridulSocket, StridulPacket, StridulError, PacketId, DataPack};
+use crate::*;
 
-use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex}, marker::PhantomData, pin::{Pin, pin}, task::Poll};
+use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex, atomic::{AtomicU32, self}}, marker::PhantomData, pin::{Pin, pin}, task::Poll};
 
 use tokio_util::sync::ReusableBoxFuture;
 use std::future::Future;
 use bytes::{BytesMut, Bytes, BufMut};
-use tokio::{net::{UdpSocket, ToSocketAddrs}, io::{AsyncRead, AsyncWrite}, sync::{Notify, futures::Notified}};
+use tokio::{net::{UdpSocket, ToSocketAddrs}, io::{AsyncRead, AsyncWrite}, sync::{Notify, futures::Notified, Mutex as AMutex}};
 use thiserror::Error;
 use itertools::Itertools;
 
@@ -93,6 +93,12 @@ impl SortedSpariousBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct FlyingBufferInfo {
+    pub sequence: u32,
+    pub size: u32,
+}
+
 pub struct StridulStream {
     id: StreamID,
     peer_addr: SocketAddr,
@@ -101,9 +107,65 @@ pub struct StridulStream {
     received: Mutex<SortedSpariousBuffer>,
     /// Notified when data is available in received
     readable_notify: Notify,
+
+    receiver_window_size: AtomicU32,
+
+    total_sent: AtomicU32,
+    // FIXPERF: Use data structures that would require less copies and locks
+    write_buffer: AMutex<BytesMut>,
+    in_flights: AMutex<Vec<FlyingBufferInfo>>,
 }
 
 impl StridulStream {
+    /// Send as much bytes as the receiver window allows
+    async fn flush_write_buffer(&self) -> Result<(), StridulError> {
+        let mut in_flights = self.in_flights.lock().await;
+        let mut write_buffer = self.write_buffer.lock().await;
+
+        let flight_size = in_flights.iter()
+            .map(|f| f.size)
+            .sum::<u32>();
+        let sendable_now = self.receiver_window_size
+            .load(atomic::Ordering::Relaxed).saturating_sub(flight_size);
+
+        let packet_sizes = self.socket.packet_max_size();
+        let packet_count = sendable_now.div_ceil(packet_sizes);
+        for _ in 0..packet_count {
+            let remaining_len = write_buffer.len();
+            let bytes = write_buffer.split_to(
+                (packet_sizes as usize).min(remaining_len)
+            ).freeze();
+
+            let size = bytes.len() as u32;
+            let total_sent = self.total_sent
+                .fetch_add(size, atomic::Ordering::Relaxed);
+
+            self.socket.send_raw_reliable(self.peer_addr, DataPack {
+                id: PacketId {
+                    stream_id: self.id,
+                    sequence_number: total_sent,
+                    ..default()
+                },
+                data: bytes,
+            }).await?;
+
+            in_flights.push(FlyingBufferInfo {
+                sequence: total_sent,
+                size
+            });
+        }
+
+        Ok(())
+    }
+
+    async fn raw_write_bytes(
+        &self, bytes: &Bytes
+    ) -> Result<(), StridulError> {
+        self.write_buffer.lock().await.put_slice(bytes);
+        self.flush_write_buffer().await?;
+        Ok(())
+    }
+
     pub(crate) fn new(
         id: StreamID,
         peer_addr: SocketAddr,
@@ -114,8 +176,14 @@ impl StridulStream {
             peer_addr,
             socket,
 
-            received: Default::default(),
+            received: default(),
             readable_notify: Notify::new(),
+
+            receiver_window_size: AtomicU32::new(0),
+
+            total_sent: AtomicU32::new(0),
+            write_buffer: default(),
+            in_flights: default(),
         })
     }
 
@@ -143,6 +211,26 @@ impl StridulStream {
         }
 
         Ok(true)
+    }
+
+    pub(crate) async fn handle_ack_pack(
+        &self, pack: AckPack,
+    ) -> Result<(), StridulError> {
+        // FIXME: When a window of 0 is sent, other acks that increase it
+        //        may be lost, so after some time an empty packet should
+        //        be sent.
+        self.receiver_window_size.store(
+            pack.window_size, atomic::Ordering::Relaxed
+        );
+        let mut in_flights = self.in_flights.lock().await;
+        let ifpos = in_flights.iter()
+            .find_position(|fi| fi.sequence == pack.acked_id.sequence_number)
+            .map(|x| x.0);
+        if let Some(index) = ifpos {
+            in_flights.remove(index);
+        }
+        self.flush_write_buffer().await?;
+        Ok(())
     }
 
     pub fn id(&self) -> StreamID {

@@ -1,3 +1,5 @@
+#![feature(int_roundings)]
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
@@ -12,7 +14,12 @@ use std::{net::SocketAddr, time::Duration, sync::Arc};
 use tokio::net::{UdpSocket, ToSocketAddrs};
 use thiserror::Error;
 
-pub const DEFAULT_RTO: Duration = Duration::from_millis(100);
+pub(crate) const DEFAULT_RTO: Duration = Duration::from_millis(100);
+
+/// Stable version of the std function
+pub(crate) fn default<T: Default>() -> T {
+    return T::default();
+}
 
 #[derive(Error, Debug)]
 pub enum StridulError {
