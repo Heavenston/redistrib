@@ -5,7 +5,7 @@ use std::{net::SocketAddr, time::{Duration, Instant}, sync::{Arc, RwLock, Mutex}
 use bincode::Options;
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
-use tokio::{net::{UdpSocket, ToSocketAddrs}, stream, time as ttime};
+use tokio::{net::{UdpSocket, ToSocketAddrs}, stream, time as ttime, sync::oneshot};
 use thiserror::Error;
 use futures::future::Either as fEither;
 
@@ -83,6 +83,7 @@ pub(crate) struct InFlightPacket {
     pub addr: SocketAddr,
     pub sent_at: Instant,
     pub rto: Duration,
+    pub ack_send: oneshot::Sender<()>,
 }
 
 pub struct StridulSocket {
@@ -125,18 +126,19 @@ impl StridulSocket {
 
     pub(crate) async fn send_raw_reliable(
         &self, dest: SocketAddr, id: PacketId, data: Bytes,
-    ) -> Result<(), StridulError> {
+    ) -> Result<oneshot::Receiver<()>, StridulError> {
         let packet = StridulPacket::Data { id, data };
         self.send_raw(&dest, &packet).await?;
+        let (ack_send, ack_recv) = oneshot::channel();
         self.reliable_in_flight.0.send_async(InFlightPacket {
             packet,
             addr: dest,
             sent_at: Instant::now(),
             // FIXPERF: Rto based on calculated RTT
             rto: self.base_rto,
-        })
-            .await.ok();
-        Ok(())
+            ack_send,
+        }).await.ok();
+        Ok(ack_recv)
     }
 }
 
@@ -252,6 +254,11 @@ impl StridulSocketDriver {
                 };
                 let flying_packet =
                     self.packets_in_flight.remove(acked_packet_pos);
+
+                if !flying_packet.ack_send.is_closed() {
+                    flying_packet.ack_send.send(()).unwrap();
+                }
+
                 log::trace!(
                     "Acked packet {:?} after {:?}",
                     flying_packet.packet.id(), flying_packet.sent_at.elapsed()
