@@ -17,7 +17,7 @@ pub(crate) struct PacketId {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) enum StridulPacket {
     Ack {
-        id: PacketId,
+        acked_id: PacketId,
     },
     ROPacket {
         id: PacketId,
@@ -29,7 +29,7 @@ impl StridulPacket {
     pub fn id(&self) -> PacketId {
         use StridulPacket::*;
         match self {
-            Ack { id } |
+            Ack { acked_id: id } |
             ROPacket { id, .. } => *id,
         }
     }
@@ -126,7 +126,9 @@ impl StridulSocket {
             
             let stream = stream.unwrap_or_else(|| {
                 let stream = StridulStream::new(
-                    packet.id().stream_id, Arc::clone(self)
+                    packet.id().stream_id,
+                    addr.clone(),
+                    Arc::clone(self)
                 );
 
                 let mut streams = self.streams.write().unwrap();
@@ -137,7 +139,7 @@ impl StridulSocket {
                 stream
             });
 
-            stream.handle_packet(&packet);
+            stream.handle_packet(&packet).await?;
 
             if !is_new_stream { continue; }
 

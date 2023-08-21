@@ -1,4 +1,4 @@
-use crate::{StridulSocket, StridulPacket};
+use crate::{StridulSocket, StridulPacket, StridulError};
 
 use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex}, marker::PhantomData, pin::{Pin, pin}, task::Poll};
 
@@ -17,17 +17,51 @@ struct BuffEl {
     pub bytes: Bytes,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum BufferOverlap {
+    /// Buffer is fully covered by other buffers
+    Full,
+    /// Buffer is partially covered by other buffers
+    Partial,
+    #[default]
+    None,
+}
+
 #[derive(Debug, Clone, Default)]
 struct SortedSpariousBuffer {
     pub flushed: usize,
     pub els: Vec<BuffEl>,
 }
 impl SortedSpariousBuffer {
-    pub fn insert(&mut self, el: BuffEl) {
-        let index = (0usize..self.els.len())
-            .find(|&i| self.els[i].start_idx >= el.start_idx)
+    pub fn insert(&mut self, el: BuffEl) -> BufferOverlap {
+        let i = (0usize..self.els.len())
+            .find(|&i| self.els[i].start_idx > el.start_idx)
             .unwrap_or(self.els.len());
-        self.els.insert(index, el);
+
+        // Note: Next one is the current index one because after insertion
+        // it will be moved to the right
+        let previous = &self.els[i.saturating_sub(1)];
+        let next = &self.els[i.clamp(0, self.els.len()-1)];
+        if i > 0 {
+            let distance = el.start_idx - previous.start_idx;
+            // Previous one is overlapping
+            if distance < previous.bytes.len() {
+                let overlapped_start_bytes = previous.bytes.len() - distance;
+                if overlapped_start_bytes >= el.bytes.len() {
+                    return BufferOverlap::Full;
+                }
+                else {
+                    return BufferOverlap::Partial;
+                }
+            }
+        }
+        if i < self.els.len().saturating_sub(1) {
+            todo!("Right overlapp")
+        }
+
+        self.els.insert(i, el);
+
+        BufferOverlap::None
     }
 
     pub fn contiguouses<'a>(&'a self) -> impl Iterator<Item = &'a BuffEl> {
@@ -60,6 +94,7 @@ impl SortedSpariousBuffer {
 
 pub struct StridulStream {
     id: StreamID,
+    peer_addr: SocketAddr,
     socket: Arc<StridulSocket>,
 
     received: Mutex<SortedSpariousBuffer>,
@@ -69,10 +104,12 @@ pub struct StridulStream {
 impl StridulStream {
     pub(crate) fn new(
         id: StreamID,
+        peer_addr: SocketAddr,
         socket: Arc<StridulSocket>,
     ) -> Arc<Self> {
         Arc::new(Self {
             id,
+            peer_addr,
             socket,
 
             received: Default::default(),
@@ -80,17 +117,32 @@ impl StridulStream {
         })
     }
 
-    pub(crate) fn handle_packet(&self, packet: &StridulPacket) {
+    pub(crate) async fn handle_packet(
+        &self,
+        packet: &StridulPacket
+    ) -> Result<(), StridulError> {
         use StridulPacket::*;
         match packet {
-            Ack { .. } => (),
-            ROPacket { id, data } => self.received.lock().unwrap().insert(
-                BuffEl {
-                    start_idx: id.sequence_number.try_into().unwrap(),
-                    bytes: data.clone(),
+            Ack { .. } => return Ok(()),
+            ROPacket { id, data } => {
+                self.socket.send_raw(self.peer_addr, &StridulPacket::Ack {
+                    acked_id: *id
+                }).await?;
+
+                let slt = self.received.lock().unwrap().insert(
+                    BuffEl {
+                        start_idx: id.sequence_number.try_into().unwrap(),
+                        bytes: data.clone(),
+                    }
+                );
+                if slt != BufferOverlap::None {
+                    log::trace!("Dropping {slt:?} packet");
+                    return Ok(());
                 }
-            ),
+            },
         }
+
+        Ok(())
     }
 
     pub fn reader<'a>(self: &'a StridulStream) -> StridulStreamReader<'a> {
