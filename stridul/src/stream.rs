@@ -1,6 +1,6 @@
 use crate::*;
 
-use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex, atomic::{AtomicU32, self}}, marker::PhantomData, pin::{Pin, pin}, task::Poll, io::Write};
+use std::{time::Duration, sync::{Arc, Mutex, atomic::{AtomicU32, self}}, marker::PhantomData, pin::{Pin, pin}, task::Poll, io::Write};
 
 use tokio_util::sync::ReusableBoxFuture;
 use std::future::Future;
@@ -99,10 +99,10 @@ struct FlyingBufferInfo {
     pub size: u32,
 }
 
-pub struct StridulStream {
+pub struct StridulStream<Strat: StridulStrategy> {
     id: StreamID,
-    peer_addr: SocketAddr,
-    socket: Arc<StridulSocket>,
+    peer_addr: Strat::PeersAddr,
+    socket: Arc<StridulSocket<Strat>>,
 
     received: Mutex<SortedSpariousBuffer>,
     /// Notified when data is available in received
@@ -116,7 +116,7 @@ pub struct StridulStream {
     in_flights: AMutex<Vec<FlyingBufferInfo>>,
 }
 
-impl StridulStream {
+impl<Strat: StridulStrategy> StridulStream<Strat> {
     /// Send as much bytes as the receiver window allows
     async fn flush_write_buffer(&self) -> Result<(), StridulError> {
         let mut in_flights = self.in_flights.lock().await;
@@ -128,7 +128,7 @@ impl StridulStream {
         let sendable_now = self.receiver_window_size
             .load(atomic::Ordering::Relaxed).saturating_sub(flight_size);
 
-        let packet_sizes = self.socket.packet_max_size();
+        let packet_sizes = Strat::PACKET_MAX_SIZE;
         let packet_count = sendable_now.div_ceil(packet_sizes);
         for _ in 0..packet_count {
             let remaining_len = write_buffer.len();
@@ -140,7 +140,7 @@ impl StridulStream {
             let total_sent = self.total_sent
                 .fetch_add(size, atomic::Ordering::Relaxed);
 
-            self.socket.send_raw_reliable(self.peer_addr, DataPack {
+            self.socket.send_raw_reliable(self.peer_addr.clone(), DataPack {
                 id: PacketId {
                     stream_id: self.id,
                     sequence_number: total_sent,
@@ -160,8 +160,8 @@ impl StridulStream {
 
     pub(crate) fn new(
         id: StreamID,
-        peer_addr: SocketAddr,
-        socket: Arc<StridulSocket>,
+        peer_addr: Strat::PeersAddr,
+        socket: Arc<StridulSocket<Strat>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             id,
@@ -229,7 +229,7 @@ impl StridulStream {
         self.id
     }
 
-    pub fn peer_addr(&self) -> &SocketAddr {
+    pub fn peer_addr(&self) -> &Strat::PeersAddr {
         &self.peer_addr
     }
 
@@ -256,23 +256,23 @@ impl StridulStream {
         self.flush_write_buffer().await
     }
 
-    pub fn reader<'a>(self: &'a StridulStream) -> StridulStreamReader<'a> {
+    pub fn reader<'a>(&'a self) -> StridulStreamReader<'a, Strat> {
         StridulStreamReader::new(self)
     }
 
-    pub fn writer<'a>(self: &'a StridulStream) -> StridulStreamWriter<'a> {
+    pub fn writer<'a>(&'a self) -> StridulStreamWriter<'a, Strat> {
         StridulStreamWriter::new(self)
     }
 }
 
 /// AsyncReader wrapper for a stridul stream
-pub struct StridulStreamReader<'a> {
-    stream: &'a StridulStream,
+pub struct StridulStreamReader<'a, Strat: StridulStrategy> {
+    stream: &'a StridulStream<Strat>,
     notify: Pin<Box<Notified<'a>>>,
 }
 
-impl<'a> StridulStreamReader<'a> {
-    fn new(stream: &'a StridulStream) -> Self {
+impl<'a, Strat: StridulStrategy> StridulStreamReader<'a, Strat> {
+    fn new(stream: &'a StridulStream<Strat>) -> Self {
         let mut n = Box::pin(stream.readable_notify.notified());
         n.as_mut().enable();
         Self {
@@ -282,7 +282,7 @@ impl<'a> StridulStreamReader<'a> {
     }
 }
 
-impl<'a> AsyncRead for StridulStreamReader<'a> {
+impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -309,14 +309,14 @@ impl<'a> AsyncRead for StridulStreamReader<'a> {
 }
 
 /// AsyncWriter wrapper for a stridul stream
-pub struct StridulStreamWriter<'a> {
-    stream: &'a StridulStream,
+pub struct StridulStreamWriter<'a, Strat: StridulStrategy> {
+    stream: &'a StridulStream<Strat>,
     write_buffer_unlock: Option<Pin<Box<dyn 'a + Future<Output = AMutexGuard<'a, BytesMut>>>>>,
     flushing: Option<Pin<Box<dyn 'a + Future<Output = Result<(), StridulError>>>>>,
 }
 
-impl<'a> StridulStreamWriter<'a> {
-    fn new(stream: &'a StridulStream) -> Self {
+impl<'a, Strat: StridulStrategy> StridulStreamWriter<'a, Strat> {
+    fn new(stream: &'a StridulStream<Strat>) -> Self {
         Self {
             stream,
             write_buffer_unlock: None,
@@ -337,7 +337,7 @@ impl<'a> StridulStreamWriter<'a> {
     }
 }
 
-impl<'a> AsyncWrite for StridulStreamWriter<'a> {
+impl<'a, Strat: StridulStrategy> AsyncWrite for StridulStreamWriter<'a, Strat> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

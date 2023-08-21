@@ -1,7 +1,7 @@
 use crate::*;
 
 use std::{
-    net::SocketAddr, time::{Duration, Instant}, sync::{Arc, RwLock, Mutex},
+    time::{Duration, Instant}, sync::{Arc, RwLock, Mutex},
     collections::HashMap, ops::ControlFlow, mem::size_of
 };
 
@@ -98,9 +98,9 @@ impl From<DataPack> for StridulPacket {
 }
 
 type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
-pub(crate) struct InFlightPacket {
+pub(crate) struct InFlightPacket<Strat: StridulStrategy> {
     pub packet: DataPack,
-    pub addr: SocketAddr,
+    pub addr: Strat::PeersAddr,
     pub sent_at: Instant,
     pub rto: Duration,
     pub ack_send: oneshot::Sender<()>,
@@ -108,49 +108,42 @@ pub(crate) struct InFlightPacket {
 
 #[derive(derivative::Derivative, thiserror::Error)]
 #[derivative(Debug)]
-pub enum CreateStreamError {
+pub enum CreateStreamError<Strat: StridulStrategy> {
     #[error("A Stream already exists with the same id and peer addr")]
-    AlreadyCreated(#[derivative(Debug="ignore")] Arc<StridulStream>),
+    AlreadyCreated(#[derivative(Debug="ignore")] Arc<StridulStream<Strat>>),
 }
 
-pub struct StridulSocket {
-    /// The retransmission timeout
-    base_rto: Duration,
-    packet_max_size: u32,
-    socket: UdpSocket,
+pub struct StridulSocket<Strat: StridulStrategy> {
+    socket: Strat::Socket,
 
-    reliable_in_flight: FlumePipe<InFlightPacket>,
+    reliable_in_flight: FlumePipe<InFlightPacket<Strat>>,
     created_streams: FlumePipe<(
-        Arc<StridulStream>, oneshot::Sender<Result<(), CreateStreamError>>
+        Arc<StridulStream<Strat>>, oneshot::Sender<Result<(), CreateStreamError<Strat>>>
     )>,
 }
 
-impl StridulSocket {
+impl<Strat: StridulStrategy> StridulSocket<Strat> {
     pub async fn new(
-        addr: impl ToSocketAddrs
-    ) -> Result<(Arc<Self>, StridulSocketDriver), StridulError> {
-        let socket = UdpSocket::bind(addr).await?;
-
+        socket: Strat::Socket
+    ) -> (Arc<Self>, StridulSocketDriver<Strat>) {
         let this = Arc::new(Self {
-            base_rto: DEFAULT_RTO,
-            packet_max_size: 2u32.pow(9), // 512bytes
             socket,
 
             reliable_in_flight: flume::unbounded(),
             created_streams: flume::unbounded(),
         });
         let driver = StridulSocketDriver::new(Arc::clone(&this));
-        Ok((this, driver))
+        (this, driver)
     }
 
-    pub fn listen_addr(&self) -> Result<SocketAddr, StridulError> {
+    pub fn listen_addr(&self) -> Result<Strat::PeersAddr, StridulError> {
         Ok(self.socket.local_addr()?)
     }
 
 
     pub async fn create_stream(
-        self: &Arc<Self>, id: StreamID, peer_addr: SocketAddr,
-    ) -> Result<Arc<StridulStream>, CreateStreamError> {
+        self: &Arc<Self>, id: StreamID, peer_addr: Strat::PeersAddr,
+    ) -> Result<Arc<StridulStream<Strat>>, CreateStreamError<Strat>> {
         let (rs_send, rs_recv) = oneshot::channel();
         let stream = StridulStream::new(
             id, peer_addr, Arc::clone(self)
@@ -160,22 +153,18 @@ impl StridulSocket {
     }
 
     pub async fn get_or_create_stream(
-        self: &Arc<Self>, id: StreamID, peer_addr: SocketAddr,
-    ) -> Arc<StridulStream> {
+        self: &Arc<Self>, id: StreamID, peer_addr: Strat::PeersAddr,
+    ) -> Arc<StridulStream<Strat>> {
         match self.create_stream(id, peer_addr).await {
             Ok(s) | Err(CreateStreamError::AlreadyCreated(s)) => s,
         }
     }
 
-    pub(crate) fn packet_max_size(&self) -> u32 {
-        self.packet_max_size
-    }
-
     pub(crate) async fn send_raw(
-        &self, dest: &SocketAddr, packet: &StridulPacket
+        &self, dest: &Strat::PeersAddr, packet: &StridulPacket
     ) -> Result<(), StridulError> {
         ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
-        assert!((packet.data_len() as u128) < (self.packet_max_size as u128));
+        assert!((packet.data_len() as u128) < (Strat::PACKET_MAX_SIZE as u128));
 
         // FIXPERF: Memory pool to not alocation each time
         let data = bincode::serialize(packet)?;
@@ -185,10 +174,10 @@ impl StridulSocket {
     }
 
     pub(crate) async fn send_raw_reliable(
-        &self, dest: SocketAddr, packet: DataPack,
+        &self, dest: Strat::PeersAddr, packet: DataPack,
     ) -> Result<oneshot::Receiver<()>, StridulError> {
         ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
-        assert!((packet.data.len() as u128) < (self.packet_max_size as u128));
+        assert!((packet.data.len() as u128) < (Strat::PACKET_MAX_SIZE as u128));
 
         self.send_raw(&dest, &packet.clone().into()).await?;
 
@@ -198,7 +187,7 @@ impl StridulSocket {
             addr: dest,
             sent_at: Instant::now(),
             // FIXPERF: Rto based on calculated RTT
-            rto: self.base_rto,
+            rto: Strat::BASE_RTO,
             ack_send,
         }).await.ok();
 
@@ -206,22 +195,24 @@ impl StridulSocket {
     }
 }
 
-pub struct StridulSocketDriver {
-    socket: Arc<StridulSocket>,
+pub struct StridulSocketDriver<Strat: StridulStrategy> {
+    socket: Arc<StridulSocket<Strat>>,
 
     // FIXPERF: There gotta be a better data structure
-    streams: HashMap<SocketAddr, HashMap<StreamID, Arc<StridulStream>>>,
+    streams: HashMap<
+        Strat::PeersAddr, HashMap<StreamID, Arc<StridulStream<Strat>>>
+    >,
 
     /// The list of all packets that has not been acknoledged yet
     /// Sorted from oldest to newest
-    packets_in_flight: Vec<InFlightPacket>,
+    packets_in_flight: Vec<InFlightPacket<Strat>>,
     /// List of Acks that had unknown packet ids in case the packet comes
     /// after
-    acks_not_processed: Vec<(AckPack, SocketAddr)>,
+    acks_not_processed: Vec<(AckPack, Strat::PeersAddr)>,
 }
 
-impl StridulSocketDriver {
-    fn new(socket: Arc<StridulSocket>) -> Self {
+impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
+    fn new(socket: Arc<StridulSocket<Strat>>) -> Self {
         Self {
             socket,
 
@@ -236,7 +227,9 @@ impl StridulSocketDriver {
     ///
     /// Must be called in a loop as no packet can be received while this is
     /// not running
-    pub async fn drive(&mut self) -> Result<Arc<StridulStream>, StridulError> {
+    pub async fn drive(
+        &mut self
+    ) -> Result<Arc<StridulStream<Strat>>, StridulError> {
         const BUFFER_SIZE: usize = 1024;
         let mut buffer = BytesMut::zeroed(BUFFER_SIZE + 8);
 
@@ -261,7 +254,7 @@ impl StridulSocketDriver {
                 biased;
 
                 Ok((stream, rslt_send)) = self.socket.created_streams.1.recv_async() => {
-                    let streams = self.streams.entry(*stream.peer_addr())
+                    let streams = self.streams.entry(stream.peer_addr().clone())
                         .or_default();
                     match streams.get(&stream.id()) {
                         None => {
@@ -297,7 +290,7 @@ impl StridulSocketDriver {
                 e = self.socket.socket.recv_from(&mut buffer) => {
                     let (size, addr) = e?;
                     if size > BUFFER_SIZE {
-                        log::trace!("Dropped packet from '{addr}' with too big payload, bytes may have been dropped");
+                        log::trace!("Dropped packet from '{addr:?}' with too big payload, bytes may have been dropped");
                         continue;
                     }
 
@@ -308,7 +301,7 @@ impl StridulSocketDriver {
                     );
                     let Ok(packet) = serde::Deserialize::deserialize(&mut deser)
                         else {
-                            log::trace!("Dropped malformed packet from '{addr}'");
+                            log::trace!("Dropped malformed packet from '{addr:?}'");
                             continue;
                         };
 
@@ -322,8 +315,8 @@ impl StridulSocketDriver {
     }
 
     async fn packet(
-        &mut self, addr: SocketAddr, packet: StridulPacket,
-    ) -> Result<ControlFlow<Arc<StridulStream>>, StridulError> {
+        &mut self, addr: Strat::PeersAddr, packet: StridulPacket,
+    ) -> Result<ControlFlow<Arc<StridulStream<Strat>>>, StridulError> {
         match packet {
             StridulPacket::Ack(pack) => {
                 let Some((acked_packet_pos, _)) =
