@@ -5,8 +5,9 @@ use std::{net::SocketAddr, time::{Duration, Instant}, sync::{Arc, RwLock, Mutex}
 use bincode::Options;
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
-use tokio::{net::{UdpSocket, ToSocketAddrs}, stream};
+use tokio::{net::{UdpSocket, ToSocketAddrs}, stream, time as ttime};
 use thiserror::Error;
+use futures::future::Either as fEither;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PacketId {
@@ -42,6 +43,14 @@ impl StridulPacket {
         match self {
             Ack { acked_id: id } |
             Data { id, .. } => *id,
+        }
+    }
+
+    pub fn id_mut(&mut self) -> &mut PacketId {
+        use StridulPacket::*;
+        match self {
+            Ack { acked_id: id } |
+            Data { id, .. } => id,
         }
     }
 
@@ -166,7 +175,37 @@ impl StridulSocketDriver {
         let mut buffer = BytesMut::zeroed(BUFFER_SIZE + 8);
 
         loop {
+            // FIXPERF: Make the search better by using the sorted property ?
+            //          I think of just early exit when next packets are send
+            //          after the current delay
+            let to_retransmit = self.packets_in_flight.iter_mut()
+                .min_by_key(|nr| nr.sent_at + nr.rto);
+            let next_retransmit = match to_retransmit.as_ref().map(|l| &**l) {
+                Some(l) => fEither::Left(
+                    ttime::sleep_until(
+                        ttime::Instant::from_std(l.sent_at + l.rto)
+                    )
+                ),
+                None => fEither::Right(
+                    std::future::pending()
+                ),
+            };
+
             tokio::select! {
+                _ = next_retransmit => {
+                    let to_retransmit = to_retransmit.unwrap();
+                    // Expanential backoff
+                    to_retransmit.rto += to_retransmit.rto * 2;
+
+                    let mut new_packet = to_retransmit.packet.clone();
+                    new_packet.id_mut().retransmission
+                        = new_packet.id_mut().retransmission.wrapping_add(1);
+                    self.socket.send_raw(
+                        &to_retransmit.addr,
+                        &new_packet
+                    ).await?;
+                }
+
                 Ok(p) = self.socket.reliable_in_flight.1.recv_async() => {
                     self.packets_in_flight.push(p);
                 }
