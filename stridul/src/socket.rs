@@ -27,12 +27,12 @@ impl PacketId {
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AckPack {
-    acked_id: PacketId,
+    pub acked_id: PacketId,
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DataPack {
-    id: PacketId,
-    data: Bytes,
+    pub id: PacketId,
+    pub data: Bytes,
 }
 
 // FIXPERF: Use rkyv ?
@@ -281,33 +281,35 @@ impl StridulSocketDriver {
                     flying_packet.packet.id, flying_packet.sent_at.elapsed()
                 );
             },
-            StridulPacket::Data(DataPack { id, data }) => {
+            StridulPacket::Data(pack) => {
                 self.socket.send_raw(&addr, &AckPack {
-                    acked_id: id,
+                    acked_id: pack.id,
                 }.into()).await?;
 
                 let (is_new_stream, stream) = self.streams.get(&addr)
                     .and_then(|addr_streams|
                         addr_streams
-                            .get(&id.stream_id).cloned()
+                            .get(&pack.id.stream_id).cloned()
                             .map(|s| (false, s))
                     ).unwrap_or_else(|| {
                         let stream = StridulStream::new(
-                            id.stream_id,
+                            pack.id.stream_id,
                             addr.clone(),
                             Arc::clone(&self.socket)
                         );
 
                         let addr_streams = self.streams.entry(addr.clone())
                             .or_default();
-                        addr_streams.insert(id.stream_id, Arc::clone(&stream));
+                        addr_streams.insert(pack.id.stream_id, Arc::clone(&stream));
 
                         (true, stream)
                     });
 
-                stream.handle_packet(id, data).await?;
+                let accepted = stream.handle_data_pack(pack).await?;
 
-                if !is_new_stream { return Ok(ControlFlow::Continue(())); }
+                if !accepted || !is_new_stream {
+                    return Ok(ControlFlow::Continue(()));
+                }
 
                 return Ok(ControlFlow::Break(NewStream {
                     remote_addr: addr,

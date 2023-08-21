@@ -1,4 +1,4 @@
-use crate::{StridulSocket, StridulPacket, StridulError, PacketId};
+use crate::{StridulSocket, StridulPacket, StridulError, PacketId, DataPack};
 
 use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex}, marker::PhantomData, pin::{Pin, pin}, task::Poll};
 
@@ -119,24 +119,21 @@ impl StridulStream {
         })
     }
 
-    pub(crate) async fn handle_packet(
+    pub(crate) async fn handle_data_pack(
         &self,
-        id: PacketId,
-        data: Bytes,
-    ) -> Result<(), StridulError> {
+        pack: DataPack,
+    ) -> Result<bool, StridulError> {
         let mut received = self.received.lock().unwrap();
-        let slt = received.insert(
-            BuffEl {
-                start_idx: id.sequence_number.try_into().unwrap(),
-                bytes: data.clone(),
-            }
-        );
+        let slt = received.insert(BuffEl {
+            start_idx: pack.id.sequence_number.try_into().unwrap(),
+            bytes: pack.data.clone(),
+        });
         let is_there_data = received.contiguous_len() > 0;
         drop(received);
 
         if slt != BufferOverlap::None {
             log::trace!("Dropping {slt:?} packet");
-            return Ok(());
+            return Ok(false);
         }
 
         // FIXPERF: Do not re compute the contiguous len?
@@ -145,7 +142,7 @@ impl StridulStream {
             self.readable_notify.notify_one();
         }
 
-        Ok(())
+        Ok(true)
     }
 
     pub fn reader<'a>(self: &'a StridulStream) -> StridulStreamReader<'a> {
