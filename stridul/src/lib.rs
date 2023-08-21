@@ -1,4 +1,5 @@
 #![feature(int_roundings)]
+#![feature(io_error_other)]
 
 #![allow(unused_imports)]
 #![allow(dead_code)]
@@ -27,4 +28,13 @@ pub enum StridulError {
     OtherIoError(#[from] tokio::io::Error),
     #[error(transparent)]
     BincodeError(#[from] bincode::Error),
+}
+
+impl Into<std::io::Error> for StridulError {
+    fn into(self) -> std::io::Error {
+        match self {
+            Self::OtherIoError(io) => io,
+            e => std::io::Error::other(e)
+        }
+    }
 }

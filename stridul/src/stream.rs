@@ -1,11 +1,11 @@
 use crate::*;
 
-use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex, atomic::{AtomicU32, self}}, marker::PhantomData, pin::{Pin, pin}, task::Poll};
+use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex, atomic::{AtomicU32, self}}, marker::PhantomData, pin::{Pin, pin}, task::Poll, io::Write};
 
 use tokio_util::sync::ReusableBoxFuture;
 use std::future::Future;
 use bytes::{BytesMut, Bytes, BufMut};
-use tokio::{net::{UdpSocket, ToSocketAddrs}, io::{AsyncRead, AsyncWrite}, sync::{Notify, futures::Notified, Mutex as AMutex}};
+use tokio::{net::{UdpSocket, ToSocketAddrs}, io::{AsyncRead, AsyncWrite}, sync::{Notify, futures::Notified, Mutex as AMutex, MutexGuard as AMutexGuard}};
 use thiserror::Error;
 use itertools::Itertools;
 
@@ -158,14 +158,6 @@ impl StridulStream {
         Ok(())
     }
 
-    async fn raw_write_bytes(
-        &self, bytes: &Bytes
-    ) -> Result<(), StridulError> {
-        self.write_buffer.lock().await.put_slice(bytes);
-        self.flush_write_buffer().await?;
-        Ok(())
-    }
-
     pub(crate) fn new(
         id: StreamID,
         peer_addr: SocketAddr,
@@ -241,12 +233,39 @@ impl StridulStream {
         &self.peer_addr
     }
 
+    pub fn try_read(&self, into: &mut impl BufMut) -> usize {
+        self.received.lock().unwrap()
+            .drain_contiguous()
+            .map(|x| { into.put_slice(&*x); x.len() })
+            .sum()
+    }
+
+    pub async fn read(&self, into: &mut impl BufMut) -> usize {
+        self.readable_notify.notified().await;
+        self.try_read(into)
+    }
+
+    pub async fn write(
+        &self, bytes: impl AsRef<[u8]>
+    ) -> Result<(), StridulError> {
+        self.write_buffer.lock().await.put_slice(bytes.as_ref());
+        Ok(())
+    }
+
+    pub async fn flush(&self) -> Result<(), StridulError> {
+        self.flush_write_buffer().await
+    }
+
     pub fn reader<'a>(self: &'a StridulStream) -> StridulStreamReader<'a> {
         StridulStreamReader::new(self)
     }
+
+    pub fn writer<'a>(self: &'a StridulStream) -> StridulStreamWriter<'a> {
+        StridulStreamWriter::new(self)
+    }
 }
 
-/// Reader wrapper for a stridul stream
+/// AsyncReader wrapper for a stridul stream
 pub struct StridulStreamReader<'a> {
     stream: &'a StridulStream,
     notify: Pin<Box<Notified<'a>>>,
@@ -285,6 +304,74 @@ impl<'a> AsyncRead for StridulStreamReader<'a> {
         n.as_mut().enable();
         self.notify = n;
 
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// AsyncWriter wrapper for a stridul stream
+pub struct StridulStreamWriter<'a> {
+    stream: &'a StridulStream,
+    write_buffer_unlock: Option<Pin<Box<dyn 'a + Future<Output = AMutexGuard<'a, BytesMut>>>>>,
+    flushing: Option<Pin<Box<dyn 'a + Future<Output = Result<(), StridulError>>>>>,
+}
+
+impl<'a> StridulStreamWriter<'a> {
+    fn new(stream: &'a StridulStream) -> Self {
+        Self {
+            stream,
+            write_buffer_unlock: None,
+            flushing: None,
+        }
+    }
+
+    fn create_write_buffer_future(&mut self) {
+        if self.write_buffer_unlock.is_some() { return }
+        let w = Box::pin(self.stream.write_buffer.lock());
+        self.write_buffer_unlock = Some(w as _);
+    }
+
+    fn create_flushing_future(&mut self) {
+        if self.flushing.is_some() { return }
+        let w = Box::pin(self.stream.flush_write_buffer());
+        self.flushing = Some(w as _);
+    }
+}
+
+impl<'a> AsyncWrite for StridulStreamWriter<'a> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        self.create_write_buffer_future();
+        let f = self.write_buffer_unlock.as_mut().unwrap();
+        let mut b = match f.as_mut().poll(cx) {
+            Poll::Ready(b) => b,
+            Poll::Pending => return Poll::Pending,
+        };
+        self.write_buffer_unlock = None;
+        b.put_slice(buf);
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>
+    ) -> Poll<Result<(), std::io::Error>> {
+        self.create_flushing_future();
+        let f = self.flushing.as_mut().unwrap();
+        match f.as_mut().poll(cx) {
+            Poll::Ready(r) => {
+                self.flushing = None;
+                Poll::Ready(r.map_err(Into::into))
+            },
+            Poll::Pending
+                => Poll::Pending,
+        }
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>, _: &mut std::task::Context<'_>
+    ) -> Poll<Result<(), std::io::Error>> {
         Poll::Ready(Ok(()))
     }
 }
