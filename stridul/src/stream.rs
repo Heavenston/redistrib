@@ -40,24 +40,14 @@ impl SortedSpariousBuffer {
 
         // Note: Next one is the current index one because after insertion
         // it will be moved to the right
-        let previous = &self.els[i.saturating_sub(1)];
-        let next = &self.els[i.clamp(0, self.els.len()-1)];
+        // let previous = &self.els[i.saturating_sub(1)];
+        // let next = &self.els[i.clamp(0, self.els.len()-1)];
         if i > 0 {
-            let distance = el.start_idx - previous.start_idx;
-            // Previous one is overlapping
-            if distance < previous.bytes.len() {
-                let overlapped_start_bytes = previous.bytes.len() - distance;
-                if overlapped_start_bytes >= el.bytes.len() {
-                    return BufferOverlap::Full;
-                }
-                else {
-                    return BufferOverlap::Partial;
-                }
-            }
+            todo!("Left overlap")
         }
         if i < self.els.len().saturating_sub(1) {
-            let _ = next;
-            todo!("Right overlapp")
+            // let _ = next;
+            todo!("Right overlap")
         }
 
         self.els.insert(i, el);
@@ -171,7 +161,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
             received: default(),
             readable_notify: Notify::new(),
 
-            receiver_window_size: AtomicU32::new(0),
+            receiver_window_size: AtomicU32::new(Strat::BASE_WINDOW_SIZE),
 
             total_sent: AtomicU32::new(0),
             write_buffer: default(),

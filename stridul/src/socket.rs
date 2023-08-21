@@ -123,7 +123,7 @@ pub struct StridulSocket<Strat: StridulStrategy> {
 }
 
 impl<Strat: StridulStrategy> StridulSocket<Strat> {
-    pub async fn new(
+    pub fn new(
         socket: Strat::Socket
     ) -> (Arc<Self>, StridulSocketDriver<Strat>) {
         let this = Arc::new(Self {
@@ -136,10 +136,9 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
         (this, driver)
     }
 
-    pub fn listen_addr(&self) -> Result<Strat::PeersAddr, StridulError> {
+    pub fn local_addr(&self) -> Result<Strat::PeersAddr, StridulError> {
         Ok(self.socket.local_addr()?)
     }
-
 
     pub async fn create_stream(
         self: &Arc<Self>, id: StreamID, peer_addr: Strat::PeersAddr,
@@ -164,7 +163,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
         &self, dest: &Strat::PeersAddr, packet: &StridulPacket
     ) -> Result<(), StridulError> {
         ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
-        assert!((packet.data_len() as u128) < (Strat::PACKET_MAX_SIZE as u128));
+        assert!((packet.data_len() as u128) <= (Strat::PACKET_MAX_SIZE as u128));
 
         // FIXPERF: Memory pool to not alocation each time
         let data = bincode::serialize(packet)?;
@@ -177,7 +176,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
         &self, dest: Strat::PeersAddr, packet: DataPack,
     ) -> Result<oneshot::Receiver<()>, StridulError> {
         ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
-        assert!((packet.data.len() as u128) < (Strat::PACKET_MAX_SIZE as u128));
+        assert!((packet.data.len() as u128) <= (Strat::PACKET_MAX_SIZE as u128));
 
         self.send_raw(&dest, &packet.clone().into()).await?;
 
@@ -348,9 +347,10 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 );
             },
             StridulPacket::Data(pack) => {
+                log::trace!("Received packet {pack:#?}");
                 self.socket.send_raw(&addr, &AckPack {
                     acked_id: pack.id,
-                    window_size: u32::pow(2, 12) // 4kb
+                    window_size: Strat::BASE_WINDOW_SIZE
                 }.into()).await?;
 
                 let (is_new_stream, stream) = self.streams.get(&addr)
