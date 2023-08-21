@@ -88,11 +88,6 @@ impl From<DataPack> for StridulPacket {
     }
 }
 
-pub struct NewStream {
-    pub remote_addr: SocketAddr,
-    pub stream: Arc<StridulStream>,
-}
-
 type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
 pub(crate) struct InFlightPacket {
     pub packet: DataPack,
@@ -102,12 +97,22 @@ pub(crate) struct InFlightPacket {
     pub ack_send: oneshot::Sender<()>,
 }
 
+#[derive(derivative::Derivative, thiserror::Error)]
+#[derivative(Debug)]
+pub enum CreateStreamError {
+    #[error("A Stream already exists with the same id and peer addr")]
+    AlreadyCreated(#[derivative(Debug="ignore")] Arc<StridulStream>),
+}
+
 pub struct StridulSocket {
     /// The retransmission timeout
     base_rto: Duration,
     socket: UdpSocket,
 
     reliable_in_flight: FlumePipe<InFlightPacket>,
+    created_streams: FlumePipe<(
+        Arc<StridulStream>, oneshot::Sender<Result<(), CreateStreamError>>
+    )>,
 }
 
 impl StridulSocket {
@@ -121,6 +126,7 @@ impl StridulSocket {
             socket,
 
             reliable_in_flight: flume::unbounded(),
+            created_streams: flume::unbounded(),
         });
         let driver = StridulSocketDriver::new(Arc::clone(&this));
         Ok((this, driver))
@@ -128,6 +134,25 @@ impl StridulSocket {
 
     pub fn listen_addr(&self) -> Result<SocketAddr, StridulError> {
         Ok(self.socket.local_addr()?)
+    }
+
+    pub async fn create_stream(
+        self: &Arc<Self>, id: StreamID, peer_addr: SocketAddr,
+    ) -> Result<Arc<StridulStream>, CreateStreamError> {
+        let (rs_send, rs_recv) = oneshot::channel();
+        let stream = StridulStream::new(
+            id, peer_addr, Arc::clone(self)
+        );
+        let _ = self.created_streams.0.send((Arc::clone(&stream), rs_send));
+        rs_recv.await.unwrap().map(move |_| stream)
+    }
+
+    pub async fn get_or_create_stream(
+        self: &Arc<Self>, id: StreamID, peer_addr: SocketAddr,
+    ) -> Arc<StridulStream> {
+        match self.create_stream(id, peer_addr).await {
+            Ok(s) | Err(CreateStreamError::AlreadyCreated(s)) => s,
+        }
     }
 
     pub(crate) async fn send_raw(
@@ -189,7 +214,7 @@ impl StridulSocketDriver {
     ///
     /// Must be called in a loop as no packet can be received while this is
     /// not running
-    pub async fn drive(&mut self) -> Result<NewStream, StridulError> {
+    pub async fn drive(&mut self) -> Result<Arc<StridulStream>, StridulError> {
         const BUFFER_SIZE: usize = 1024;
         let mut buffer = BytesMut::zeroed(BUFFER_SIZE + 8);
 
@@ -211,6 +236,28 @@ impl StridulSocketDriver {
             };
 
             tokio::select! {
+                biased;
+
+                Ok((stream, rslt_send)) = self.socket.created_streams.1.recv_async() => {
+                    let streams = self.streams.entry(*stream.peer_addr())
+                        .or_default();
+                    match streams.get(&stream.id()) {
+                        None => {
+                            streams.insert(stream.id(), stream);
+                            let _ = rslt_send.send(Ok(()));
+                        }
+                        Some(s) => {
+                            let _ = rslt_send.send(Err(
+                                CreateStreamError::AlreadyCreated(Arc::clone(s))
+                            ));
+                        }
+                    }
+                }
+
+                Ok(p) = self.socket.reliable_in_flight.1.recv_async() => {
+                    self.packets_in_flight.push(p);
+                }
+                
                 _ = next_retransmit => {
                     let to_retransmit = to_retransmit.unwrap();
                     // Expanential backoff
@@ -223,10 +270,6 @@ impl StridulSocketDriver {
                         &to_retransmit.addr,
                         &new_pack.into()
                     ).await?;
-                }
-
-                Ok(p) = self.socket.reliable_in_flight.1.recv_async() => {
-                    self.packets_in_flight.push(p);
                 }
 
                 e = self.socket.socket.recv_from(&mut buffer) => {
@@ -258,7 +301,7 @@ impl StridulSocketDriver {
 
     async fn packet(
         &mut self, addr: SocketAddr, packet: StridulPacket,
-    ) -> Result<ControlFlow<NewStream>, StridulError> {
+    ) -> Result<ControlFlow<Arc<StridulStream>>, StridulError> {
         match packet {
             StridulPacket::Ack(pack) => {
                 let Some((acked_packet_pos, _)) =
@@ -311,10 +354,7 @@ impl StridulSocketDriver {
                     return Ok(ControlFlow::Continue(()));
                 }
 
-                return Ok(ControlFlow::Break(NewStream {
-                    remote_addr: addr,
-                    stream,
-                }));               
+                return Ok(ControlFlow::Break(stream));               
             },
         }
 

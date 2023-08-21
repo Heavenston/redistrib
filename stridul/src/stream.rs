@@ -145,6 +145,14 @@ impl StridulStream {
         Ok(true)
     }
 
+    pub fn id(&self) -> StreamID {
+        self.id
+    }
+
+    pub fn peer_addr(&self) -> &SocketAddr {
+        &self.peer_addr
+    }
+
     pub fn reader<'a>(self: &'a StridulStream) -> StridulStreamReader<'a> {
         StridulStreamReader::new(self)
     }
