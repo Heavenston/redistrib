@@ -1,8 +1,10 @@
 use crate::*;
 
-use std::{net::SocketAddr, time::Duration, sync::{Arc, RwLock}, collections::HashMap};
+use std::{net::SocketAddr, time::{Duration, Instant}, sync::{Arc, RwLock, Mutex}, collections::HashMap, ops::ControlFlow};
 
+use bincode::Options;
 use bytes::{Bytes, BytesMut};
+use itertools::Itertools;
 use tokio::{net::{UdpSocket, ToSocketAddrs}, stream};
 use thiserror::Error;
 
@@ -13,13 +15,22 @@ pub(crate) struct PacketId {
     pub retransmission: u8,
 }
 
+impl PacketId {
+    pub fn with_rt(self, rt: u8) -> Self {
+        Self {
+            retransmission: rt,
+            ..self
+        }
+    }
+}
+
 // FIXPERF: Use rkyv ?
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) enum StridulPacket {
     Ack {
         acked_id: PacketId,
     },
-    ROPacket {
+    Data {
         id: PacketId,
         data: Bytes,
     },
@@ -30,13 +41,13 @@ impl StridulPacket {
         use StridulPacket::*;
         match self {
             Ack { acked_id: id } |
-            ROPacket { id, .. } => *id,
+            Data { id, .. } => *id,
         }
     }
 
     pub fn has_data(&self) -> bool {
         match self {
-            StridulPacket::ROPacket { .. } => true,
+            StridulPacket::Data { .. } => true,
             _ => false,
         }
     }
@@ -46,7 +57,7 @@ impl StridulPacket {
         match self {
             Ack { .. }
                 => None,
-            ROPacket { data, .. }
+            Data { data, .. }
                 => Some(data),
         }
     }
@@ -54,109 +65,194 @@ impl StridulPacket {
 
 pub struct NewStream {
     pub remote_addr: SocketAddr,
-    pub first_message: Bytes,
     pub stream: Arc<StridulStream>,
+}
+
+type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
+pub(crate) struct InFlightPacket {
+    pub packet: StridulPacket,
+    pub addr: SocketAddr,
+    pub sent_at: Instant,
+    pub rto: Duration,
 }
 
 pub struct StridulSocket {
     /// The retransmission timeout
-    rto: Duration,
+    base_rto: Duration,
     socket: UdpSocket,
 
-    // FIXPERF: There gotta be a better data structure
-    streams: RwLock<HashMap<SocketAddr, 
-        HashMap<StreamID, Arc<StridulStream>>
-    >>,
+    reliable_in_flight: FlumePipe<InFlightPacket>,
 }
 
 impl StridulSocket {
     pub async fn new(
         addr: impl ToSocketAddrs
-    ) -> Result<Arc<Self>, StridulError> {
+    ) -> Result<(Arc<Self>, StridulSocketDriver), StridulError> {
         let socket = UdpSocket::bind(addr).await?;
 
         let this = Arc::new(Self {
-            rto: DEFAULT_RTO,
+            base_rto: DEFAULT_RTO,
             socket,
-            streams: Default::default(),
+
+            reliable_in_flight: flume::unbounded(),
         });
-        Ok(this)
+        let driver = StridulSocketDriver::new(Arc::clone(&this));
+        Ok((this, driver))
     }
 
     pub fn listen_addr(&self) -> Result<SocketAddr, StridulError> {
         Ok(self.socket.local_addr()?)
     }
 
+    pub(crate) async fn send_raw(
+        &self, dest: &SocketAddr, packet: &StridulPacket
+    ) -> Result<(), StridulError> {
+        // FIXPERF: Memory pool to not alocation each time
+        let data = bincode::serialize(packet)?;
+        let sent = self.socket.send_to(&data, dest).await?;
+        assert_eq!(sent, data.len());
+        Ok(())
+    }
+
+    pub(crate) async fn send_raw_reliable(
+        &self, dest: SocketAddr, id: PacketId, data: Bytes,
+    ) -> Result<(), StridulError> {
+        let packet = StridulPacket::Data { id, data };
+        self.send_raw(&dest, &packet).await?;
+        self.reliable_in_flight.0.send_async(InFlightPacket {
+            packet,
+            addr: dest,
+            sent_at: Instant::now(),
+            // FIXPERF: Rto based on calculated RTT
+            rto: self.base_rto,
+        })
+            .await.ok();
+        Ok(())
+    }
+}
+
+pub struct StridulSocketDriver {
+    socket: Arc<StridulSocket>,
+
+    // FIXPERF: There gotta be a better data structure
+    streams: HashMap<SocketAddr, HashMap<StreamID, Arc<StridulStream>>>,
+
+    /// The list of all packets that has not been acknoledged yet
+    /// Sorted from oldest to newest
+    packets_in_flight: Vec<InFlightPacket>,
+    /// List of Acks that had unknown packet ids in case the packet comes
+    /// after
+    acks_not_processed: Vec<(PacketId, SocketAddr)>,
+}
+
+impl StridulSocketDriver {
+    fn new(socket: Arc<StridulSocket>) -> Self {
+        Self {
+            socket,
+
+            streams: Default::default(),
+
+            packets_in_flight: Default::default(),
+            acks_not_processed: Default::default(),
+        }
+    }
+
     /// Drives the socket until a new stream is received
     ///
     /// Must be called in a loop as no packet can be received while this is
     /// not running
-    pub async fn drive(
-        self: &Arc<Self>,
-    ) -> Result<NewStream, StridulError> {
+    pub async fn drive(&mut self) -> Result<NewStream, StridulError> {
         const BUFFER_SIZE: usize = 1024;
         let mut buffer = BytesMut::zeroed(BUFFER_SIZE + 8);
 
         loop {
-            let (size, addr) = self.socket.recv_from(&mut buffer).await?;
-            if size > BUFFER_SIZE {
-                log::trace!("Dropped packet from '{addr}' with too big payload, bytes may habe been dropped");
-                continue;
+            tokio::select! {
+                Ok(p) = self.socket.reliable_in_flight.1.recv_async() => {
+                    self.packets_in_flight.push(p);
+                }
+
+                e = self.socket.socket.recv_from(&mut buffer) => {
+                    let (size, addr) = e?;
+                    if size > BUFFER_SIZE {
+                        log::trace!("Dropped packet from '{addr}' with too big payload, bytes may have been dropped");
+                        continue;
+                    }
+
+                    let deser_options = bincode::config::DefaultOptions::new()
+                        .with_limit(1024);
+                    let mut deser = bincode::Deserializer::from_slice(
+                        &buffer, deser_options
+                    );
+                    let Ok(packet) = serde::Deserialize::deserialize(&mut deser)
+                        else {
+                            log::trace!("Dropped malformed packet from '{addr}'");
+                            continue;
+                        };
+
+                    match self.packet(addr, packet).await? {
+                        ControlFlow::Continue(()) => (),
+                        ControlFlow::Break(b) => return Ok(b),
+                    }
+                }
             }
-            let Ok(packet) = bincode::deserialize::<StridulPacket>(&buffer)
-                else {
-                    log::trace!("Dropped malformed packet from '{addr}'");
-                    continue;
-                };
-
-            let stream = 'block: {
-                let streams = self.streams.read().unwrap();
-                let Some(addr_streams) = streams.get(&addr)
-                    else { break 'block None };
-                addr_streams
-                    .get(&packet.id().stream_id).cloned()
-                    .map(|s| s)
-            };
-            let is_new_stream = stream.is_none();
-
-            if is_new_stream && !packet.has_data() {
-                log::trace!("Dropped new stream packet with no data");
-                continue;
-            }
-            
-            let stream = stream.unwrap_or_else(|| {
-                let stream = StridulStream::new(
-                    packet.id().stream_id,
-                    addr.clone(),
-                    Arc::clone(self)
-                );
-
-                let mut streams = self.streams.write().unwrap();
-                let addr_streams = streams.entry(addr.clone())
-                    .or_default();
-                addr_streams.insert(packet.id().stream_id, Arc::clone(&stream));
-
-                stream
-            });
-
-            stream.handle_packet(&packet).await?;
-
-            if !is_new_stream { continue; }
-
-            return Ok(NewStream {
-                remote_addr: addr,
-                first_message: packet.data().expect("Impossible path").clone(),
-                stream,
-            });
         }
     }
 
-    pub(crate) async fn send_raw(
-        &self, dest: SocketAddr, packet: &StridulPacket
-    ) -> Result<(), StridulError> {
-        // FIXPERF: Memory pool to not alocation each time
-        let data = bincode::serialize(packet)?;
-        self.socket.send_to(&data, &dest).await?;
-        Ok(())
+    async fn packet(
+        &mut self, addr: SocketAddr, packet: StridulPacket,
+    ) -> Result<ControlFlow<NewStream>, StridulError> {
+        match packet {
+            StridulPacket::Ack { acked_id } => {
+                let Some((acked_packet_pos, _)) =
+                    self.packets_in_flight.iter().enumerate()
+                    .filter(|(_, x)| x.addr == addr)
+                    .find(|(_, x)| x.packet.id() == acked_id.with_rt(0))
+                else {
+                    self.acks_not_processed.push((acked_id, addr));
+                    return Ok(ControlFlow::Continue(()));
+                };
+                let flying_packet =
+                    self.packets_in_flight.remove(acked_packet_pos);
+                log::trace!(
+                    "Acked packet {:?} after {:?}",
+                    flying_packet.packet.id(), flying_packet.sent_at.elapsed()
+                );
+            },
+            StridulPacket::Data { id, data } => {
+                self.socket.send_raw(&addr, &StridulPacket::Ack {
+                    acked_id: id,
+                }).await?;
+
+                let (is_new_stream, stream) = self.streams.get(&addr)
+                    .and_then(|addr_streams|
+                        addr_streams
+                            .get(&id.stream_id).cloned()
+                            .map(|s| (false, s))
+                    ).unwrap_or_else(|| {
+                        let stream = StridulStream::new(
+                            id.stream_id,
+                            addr.clone(),
+                            Arc::clone(&self.socket)
+                        );
+
+                        let addr_streams = self.streams.entry(addr.clone())
+                            .or_default();
+                        addr_streams.insert(id.stream_id, Arc::clone(&stream));
+
+                        (true, stream)
+                    });
+
+                stream.handle_packet(id, data).await?;
+
+                if !is_new_stream { return Ok(ControlFlow::Continue(())); }
+
+                return Ok(ControlFlow::Break(NewStream {
+                    remote_addr: addr,
+                    stream,
+                }));               
+            },
+        }
+
+        Ok(ControlFlow::Continue(()))
     }
 }

@@ -1,4 +1,4 @@
-use crate::{StridulSocket, StridulPacket, StridulError};
+use crate::{StridulSocket, StridulPacket, StridulError, PacketId};
 
 use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex}, marker::PhantomData, pin::{Pin, pin}, task::Poll};
 
@@ -56,6 +56,7 @@ impl SortedSpariousBuffer {
             }
         }
         if i < self.els.len().saturating_sub(1) {
+            let _ = next;
             todo!("Right overlapp")
         }
 
@@ -66,7 +67,7 @@ impl SortedSpariousBuffer {
 
     pub fn contiguouses<'a>(&'a self) -> impl Iterator<Item = &'a BuffEl> {
         self.els.iter()
-            .scan(0usize, |s, el| {
+            .scan(self.flushed, |s, el| {
                 let start = *s;
                 *s = s.wrapping_add(el.bytes.len());
                 Some((start, el))
@@ -98,6 +99,7 @@ pub struct StridulStream {
     socket: Arc<StridulSocket>,
 
     received: Mutex<SortedSpariousBuffer>,
+    /// Notified when data is available in received
     readable_notify: Notify,
 }
 
@@ -119,27 +121,28 @@ impl StridulStream {
 
     pub(crate) async fn handle_packet(
         &self,
-        packet: &StridulPacket
+        id: PacketId,
+        data: Bytes,
     ) -> Result<(), StridulError> {
-        use StridulPacket::*;
-        match packet {
-            Ack { .. } => return Ok(()),
-            ROPacket { id, data } => {
-                self.socket.send_raw(self.peer_addr, &StridulPacket::Ack {
-                    acked_id: *id
-                }).await?;
+        let mut received = self.received.lock().unwrap();
+        let slt = received.insert(
+            BuffEl {
+                start_idx: id.sequence_number.try_into().unwrap(),
+                bytes: data.clone(),
+            }
+        );
+        let is_there_data = received.contiguous_len() > 0;
+        drop(received);
 
-                let slt = self.received.lock().unwrap().insert(
-                    BuffEl {
-                        start_idx: id.sequence_number.try_into().unwrap(),
-                        bytes: data.clone(),
-                    }
-                );
-                if slt != BufferOverlap::None {
-                    log::trace!("Dropping {slt:?} packet");
-                    return Ok(());
-                }
-            },
+        if slt != BufferOverlap::None {
+            log::trace!("Dropping {slt:?} packet");
+            return Ok(());
+        }
+
+        // FIXPERF: Do not re compute the contiguous len?
+        if is_there_data {
+            // Wake up anyone waiting for data
+            self.readable_notify.notify_one();
         }
 
         Ok(())
@@ -183,6 +186,8 @@ impl<'a> AsyncRead for StridulStreamReader<'a> {
                 buf.put_slice(&x)
             });
 
+        // Replace the old notify future that is now useless
+        // with a new one, reregistering to wait for data
         let mut n = Box::pin(self.stream.readable_notify.notified());
         n.as_mut().enable();
         self.notify = n;
