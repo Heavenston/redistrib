@@ -290,14 +290,20 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 e = self.socket.socket.recv_from(&mut buffer) => {
                     let (size, addr) = e?;
                     if size > BUFFER_SIZE {
-                        log::trace!("Dropped packet from '{addr:?}' with too big payload, bytes may have been dropped");
+                        log::trace!(
+                            "[{:?}] Dropped packet from '{addr:?}' with too big payload, bytes may have been dropped",
+                            self.socket.local_addr()
+                        );
                         continue;
                     }
 
                     let packet = match Strat::deserialize(&buffer[..size]) {
                         Ok(p) => p,
                         Err(e) => {
-                            log::trace!("Dropped malformed packet from '{addr:?}' > {e}");
+                            log::trace!(
+                                "[{:?}] Dropped malformed packet from '{addr:?}' > {e}",
+                                self.socket.local_addr()
+                            );
                             continue;
                         }
                     };
@@ -340,12 +346,13 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 }
 
                 log::trace!(
-                    "Acked packet {:?} after {:?}",
+                    "[{:?}] Acked packet {:?} after {:?}",
+                    self.socket.local_addr(),
                     flying_packet.packet.id, flying_packet.sent_at.elapsed()
                 );
             },
             StridulPacket::Data(pack) => {
-                log::trace!("Received packet {pack:?}");
+                log::trace!("[{:?}] Received packet {pack:?}", self.socket.local_addr());
                 self.socket.send_raw(&addr, &AckPack {
                     acked_id: pack.id,
                     window_size: Strat::BASE_WINDOW_SIZE

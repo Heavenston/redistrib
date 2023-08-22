@@ -111,6 +111,7 @@ mod tests {
     use bytes::{BytesMut, BufMut, Bytes};
     use tokio::sync::{futures::Notified, Notify};
     use tokio::io::AsyncReadExt;
+    use rand::prelude::*;
 
     use crate::*;
 
@@ -120,6 +121,9 @@ mod tests {
     }
 
     struct LocalSocket {
+        drop_rate: f64,
+        drop_rng: Mutex<SmallRng>,
+
         all: Arc<AllSockets>,
         new_data: Notify,
         recv_buffer: Mutex<VecDeque<(u32, Bytes)>>,
@@ -127,8 +131,11 @@ mod tests {
     }
 
     impl LocalSocket {
-        fn new(all: &Arc<AllSockets>, addr: u32) -> Arc<Self> {
+        fn new(all: &Arc<AllSockets>, addr: u32, seed: u64, drop_rate: f64) -> Arc<Self> {
             let this = Arc::new(Self {
+                drop_rate,
+                drop_rng: Mutex::new(SmallRng::seed_from_u64(seed)),
+                
                 all: all.clone(),
                 new_data: default(),
                 recv_buffer: default(),
@@ -147,6 +154,7 @@ mod tests {
         async fn send_to(
             &self, bytes: &[u8], target: &u32
         ) -> Result<usize, StridulError> {
+
             log::info!("Writing > {}", String::from_utf8_lossy(bytes));
             let sockets = self.all.sockets.lock().unwrap();
             let t = sockets.get(target).unwrap();
@@ -160,7 +168,11 @@ mod tests {
         ) -> Result<(usize, u32), StridulError> {
             let (sender, data) = loop {
                 if let Some(x) = self.recv_buffer.lock().unwrap().pop_back()
-                { break x };
+                {
+                    if self.drop_rng.lock().unwrap().gen_bool(1. - self.drop_rate)
+                    { break x; }
+                    log::info!("Oups dropped !");
+                };
                 self.new_data.notified().await;
             };
             let copy_size = bytes.len().min(data.len());
@@ -190,10 +202,10 @@ mod tests {
 
     #[tokio::test]
     async fn full_a_to_b() -> Result<(), StridulError> {
-        env_logger::builder().is_test(true).try_init().unwrap();
+        let _ = env_logger::builder().is_test(true).try_init();
 
         let all = Arc::new(AllSockets::default());
-        let local_socket_a = LocalSocket::new(&all, 0);
+        let local_socket_a = LocalSocket::new(&all, 0, 0, 0.);
         let (socket_a, mut socket_a_driver) =
             StridulSocket::<LocalStrategy>::new(local_socket_a);
         tokio::spawn(async move {
@@ -202,7 +214,7 @@ mod tests {
             }
         });
 
-        let local_socket_b = LocalSocket::new(&all, 1);
+        let local_socket_b = LocalSocket::new(&all, 1, 0, 0.);
         let (socket_b, mut socket_b_driver) =
             StridulSocket::<LocalStrategy>::new(local_socket_b);
 
@@ -227,6 +239,54 @@ mod tests {
             }
         });
 
+        let mut output = BytesMut::zeroed(input.len());
+        let _ = tokio::time::timeout(
+            Duration::from_millis(1000),
+            b2a.reader().read_exact(&mut output)
+        ).await.unwrap()?;
+
+        assert_eq!(input.as_slice(), &output[..]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ab_with_packet_drops() -> Result<(), StridulError> {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let seed1: u64 = 930485893058898908;
+        let seed2: u64 = 4859852851008529200;
+        let packet_drop: f64 = 0.;
+
+        let all = Arc::new(AllSockets::default());
+        let local_socket_a = LocalSocket::new(&all, 0, seed1, packet_drop);
+        let (socket_a, mut socket_a_driver) =
+            StridulSocket::<LocalStrategy>::new(local_socket_a);
+        tokio::spawn(async move {
+            loop {
+                socket_a_driver.drive().await.expect("Driving crashed");
+            }
+        });
+
+        let local_socket_b = LocalSocket::new(&all, 1, seed2, packet_drop);
+        let (socket_b, mut socket_b_driver) =
+            StridulSocket::<LocalStrategy>::new(local_socket_b);
+        tokio::spawn(async move {
+            loop {
+                socket_b_driver.drive().await.expect("Driving crashed");
+            }
+        });
+
+        let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr()?)
+            .await;
+        log::info!("Waiting for write");
+        let input = b"This message is offfered to you by a very prestigeous company !!!!!";
+        a2b.write(input).await?;
+        a2b.flush().await?;
+        log::info!("Waiting for stream");
+
+        let b2a = socket_b.get_or_create_stream(a2b.id(), socket_a.local_addr()?)
+            .await;
         let mut output = BytesMut::zeroed(input.len());
         let _ = tokio::time::timeout(
             Duration::from_millis(1000),

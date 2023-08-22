@@ -173,6 +173,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
         let is_there_data = received.contiguous_len() > 0;
         drop(received);
 
+        log::trace!("[{:?}][{:?}] < {pack:?}", self.socket.local_addr(), self.id);
         if slt != BufferOverlap::None {
             log::trace!("Dropping {slt:?} packet");
             return Ok(false);
@@ -203,6 +204,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
         if let Some(index) = ifpos {
             in_flights.remove(index);
         }
+        drop(in_flights);
         self.flush_write_buffer().await?;
         Ok(())
     }
