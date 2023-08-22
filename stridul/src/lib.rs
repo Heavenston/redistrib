@@ -98,7 +98,10 @@ impl StridulStrategy for StridulUDPStrategy {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::sync::OnceLock;
+    use std::time::Instant;
     use std::{collections::HashMap, sync::Mutex};
+    use std::io::{Write, Read};
 
     use bytes::{BytesMut, BufMut, Bytes};
     use tokio::sync::{futures::Notified, Notify};
@@ -193,7 +196,20 @@ mod tests {
     }
 
     fn setup_logger() {
-        let _ = env_logger::builder().is_test(true).try_init();
+        pub static START: OnceLock<Instant> = OnceLock::new();
+
+        let _ = env_logger::builder()
+            .is_test(true)
+            .format(|buf, record| {
+                let elapsed = START.get_or_init(|| Instant::now()).elapsed();
+                write!(buf,
+                    "[{}ms {} {}] {}\n",
+                    elapsed.as_millis(),
+                    record.module_path().unwrap_or(""),
+                    record.level(), record.args()
+                )
+            })
+            .try_init();
     }
 
     #[tokio::test]
