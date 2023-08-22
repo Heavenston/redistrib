@@ -17,44 +17,79 @@ struct BuffEl {
     pub bytes: Bytes,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum BufferOverlap {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BufferInsertError {
     /// Buffer is fully covered by other buffers
-    Full,
+    FullOverlap,
     /// Buffer is partially covered by other buffers
-    Partial,
-    #[default]
-    None,
+    PartialOverlap,
+    /// Insertion would make theoriatical size get over maxmimum
+    WouldOverflow,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct SortedSpariousBuffer {
     /// May be more than the first element start_idx
     /// This is called over-flush and means that these first
     /// bytes are already flushed.
     pub flushed_bytes: usize,
     pub els: Vec<BuffEl>,
+    pub max_size: usize,
+}
+
+impl Default for SortedSpariousBuffer {
+    fn default() -> Self {
+        Self {
+            flushed_bytes: default(),
+            els: default(),
+            max_size: 4096,
+        }
+    }
 }
 
 impl SortedSpariousBuffer {
-    pub fn insert(&mut self, el: BuffEl) -> BufferOverlap {
+    pub fn insert(&mut self, el: BuffEl) -> Result<(), BufferInsertError> {
         let i = (0usize..self.els.len())
             .find(|&i| self.els[i].start_idx >= el.start_idx)
             .unwrap_or(self.els.len());
 
+        let new_max_size = 
+            self.els.iter()
+            .chain([&el])
+            .map(|x| x.start_idx + x.bytes.len())
+            .max().unwrap_or(0)
+            .saturating_sub(self.flushed_bytes);
+        if new_max_size >= self.max_size {
+            return Err(BufferInsertError::WouldOverflow);
+        }
+
         // TODO: Detect partial overlaps
         if let Some(el2) = self.els.get(i) {
             if el2.start_idx == el.start_idx {
-                return BufferOverlap::Full;
+                return Err(BufferInsertError::FullOverlap);
             }
         }
-        if el.start_idx + el.bytes.len() < self.flushed_bytes {
-            return BufferOverlap::Full;
+        if el.start_idx + el.bytes.len() <= self.flushed_bytes {
+            return Err(BufferInsertError::FullOverlap);
         }
 
         self.els.insert(i, el);
 
-        BufferOverlap::None
+        Ok(())
+    }
+
+    pub fn actual_len(&self) -> usize {
+        self.els.iter()
+            .map(|x| x.bytes.len())
+            .sum()
+    }
+
+    /// Maximum theratical size if all dis-continuities are filled
+    pub fn max_size(&self) -> usize {
+        self.els.iter()
+            .map(|x| x.start_idx + x.bytes.len())
+            .max().unwrap_or(0)
+            .saturating_sub(self.flushed_bytes)
     }
 
     pub fn contiguouses<'a>(&'a self) -> impl Iterator<Item = &'a BuffEl> {
@@ -259,8 +294,8 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
         log::trace!("[{:?}][{}] Recevied {}, {}", self.socket.local_addr()?, self.id, pack, received);
         drop(received);
 
-        if slt != BufferOverlap::None {
-            log::trace!("Dropping BufferOverlap::{slt:?} packet");
+        if let Err(e) = slt {
+            log::trace!("Dropping {e:?} packet");
             return Ok(false);
         }
 

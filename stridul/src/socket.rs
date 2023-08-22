@@ -377,10 +377,6 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 }
             },
             StridulPacket::Data(pack) => {
-                self.socket.send_raw(&addr, &AckPack {
-                    acked_id: pack.id,
-                    window_size: Strat::BASE_WINDOW_SIZE
-                }.into()).await?;
 
                 let (is_new_stream, stream) = self.streams.get(&addr)
                     .and_then(|addr_streams|
@@ -401,7 +397,15 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                         (true, stream)
                     });
 
+                let id = pack.id;
                 let accepted = stream.handle_data_pack(pack).await?;
+
+                if accepted {
+                    self.socket.send_raw(&addr, &AckPack {
+                        acked_id: id,
+                        window_size: Strat::BASE_WINDOW_SIZE
+                    }.into()).await?;
+                }
 
                 if !accepted || !is_new_stream {
                     return Ok(ControlFlow::Continue(()));
