@@ -209,6 +209,7 @@ pub struct StridulStream<Strat: StridulStrategy> {
     readable_notify: Notify,
 
     receiver_window_size: AtomicU32,
+    my_window_size: AtomicU32,
 
     total_sent: AtomicU32,
     // FIXPERF: Use data structures that would require less copies and locks
@@ -270,10 +271,14 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
             peer_addr,
             socket,
 
-            received: default(),
+            received: Mutex::new(SortedSpariousBuffer {
+                max_size: Strat::BUFFER_MAX_SIZE,
+                ..default()
+            }),
             readable_notify: Notify::new(),
 
             receiver_window_size: AtomicU32::new(Strat::BASE_WINDOW_SIZE),
+            my_window_size: AtomicU32::new(Strat::BASE_WINDOW_SIZE),
 
             total_sent: AtomicU32::new(0),
             write_buffer: default(),
@@ -281,10 +286,12 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
         })
     }
 
+    /// Returns Some(window_size) if packet is accepted
+    /// Or None if packet is dropped
     pub(crate) async fn handle_data_pack(
         &self,
         pack: DataPack,
-    ) -> Result<bool, StridulError> {
+    ) -> Result<Option<u32>, StridulError> {
         let mut received = self.received.lock().unwrap();
         let slt = received.insert(BuffEl {
             start_idx: pack.id.sequence_number.try_into().unwrap(),
@@ -296,7 +303,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
 
         if let Err(e) = slt {
             log::trace!("Dropping {e:?} packet");
-            return Ok(false);
+            return Ok(None);
         }
 
         // FIXPERF: Do not re compute the contiguous len?
@@ -305,7 +312,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
             self.readable_notify.notify_one();
         }
 
-        Ok(true)
+        Ok(Some(self.my_window_size.load(atomic::Ordering::Relaxed)))
     }
 
     pub(crate) async fn handle_ack_pack(

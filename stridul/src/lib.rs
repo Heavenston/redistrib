@@ -75,6 +75,7 @@ pub trait StridulStrategy: Sized + 'static {
     const BASE_WINDOW_SIZE: u32;
     const BASE_RTO: Duration;
     const PACKET_MAX_SIZE: u32;
+    const BUFFER_MAX_SIZE: usize;
 
     fn serialize(packet: &impl serde::Serialize, into: &mut impl BufMut)
         -> Result<(), StridulError> {
@@ -94,6 +95,7 @@ impl StridulStrategy for StridulUDPStrategy {
     const BASE_WINDOW_SIZE: u32 = 4096;
     const BASE_RTO: Duration = Duration::from_secs(100);
     const PACKET_MAX_SIZE: u32 = 512;
+    const BUFFER_MAX_SIZE: usize = 8192;
 }
 
 #[cfg(test)]
@@ -186,6 +188,7 @@ mod tests {
         const BASE_WINDOW_SIZE: u32 = 32;
         const BASE_RTO: Duration = Duration::from_millis(10);
         const PACKET_MAX_SIZE: u32 = 8;
+        const BUFFER_MAX_SIZE: usize = 256;
     }
 
     fn setup_logger() {

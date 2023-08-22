@@ -408,14 +408,14 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 let id = pack.id;
                 let accepted = stream.handle_data_pack(pack).await?;
 
-                if accepted {
+                if let Some(window_size) = accepted {
                     self.socket.send_raw(&addr, &AckPack {
                         acked_id: id,
-                        window_size: Strat::BASE_WINDOW_SIZE
+                        window_size
                     }.into()).await?;
                 }
 
-                if !accepted || !is_new_stream {
+                if accepted.is_none() || !is_new_stream {
                     return Ok(ControlFlow::Continue(()));
                 }
 
