@@ -154,8 +154,11 @@ mod tests {
         async fn send_to(
             &self, bytes: &[u8], target: &u32
         ) -> Result<usize, StridulError> {
+            if self.drop_rng.lock().unwrap().gen_bool(self.drop_rate) {
+                log::debug!("Oups dropped !");
+                return Ok(bytes.len());
+            }
 
-            log::info!("Writing > {}", String::from_utf8_lossy(bytes));
             let sockets = self.all.sockets.lock().unwrap();
             let t = sockets.get(target).unwrap();
             t.recv_buffer.lock().unwrap().push_front((self.addr, Bytes::from(bytes.to_vec())));
@@ -168,11 +171,7 @@ mod tests {
         ) -> Result<(usize, u32), StridulError> {
             let (sender, data) = loop {
                 if let Some(x) = self.recv_buffer.lock().unwrap().pop_back()
-                {
-                    if self.drop_rng.lock().unwrap().gen_bool(1. - self.drop_rate)
-                    { break x; }
-                    log::info!("Oups dropped !");
-                };
+                { break x; };
                 self.new_data.notified().await;
             };
             let copy_size = bytes.len().min(data.len());
@@ -187,7 +186,7 @@ mod tests {
         type PeersAddr = u32;
 
         const BASE_WINDOW_SIZE: u32 = 32;
-        const BASE_RTO: Duration = Duration::from_millis(1);
+        const BASE_RTO: Duration = Duration::from_millis(10);
         const PACKET_MAX_SIZE: u32 = 8;
 
         fn serialize(packet: &impl serde::Serialize, into: &mut impl BufMut)
@@ -256,7 +255,7 @@ mod tests {
 
         let seed1: u64 = 930485893058898908;
         let seed2: u64 = 4859852851008529200;
-        let packet_drop: f64 = 0.;
+        let packet_drop: f64 = 0.25;
 
         let all = Arc::new(AllSockets::default());
         let local_socket_a = LocalSocket::new(&all, 0, seed1, packet_drop);
@@ -287,14 +286,13 @@ mod tests {
 
         let b2a = socket_b.get_or_create_stream(a2b.id(), socket_a.local_addr()?)
             .await;
+
         let mut output = BytesMut::zeroed(input.len());
         let _ = tokio::time::timeout(
-            Duration::from_millis(1000),
+            Duration::from_millis(2000),
             b2a.reader().read_exact(&mut output)
         ).await.unwrap()?;
-
         assert_eq!(input.as_slice(), &output[..]);
-
         Ok(())
     }
 }

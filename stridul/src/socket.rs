@@ -29,15 +29,34 @@ impl PacketId {
     }
 }
 
+impl std::fmt::Display for PacketId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(s{}, seq{}, x{})", self.stream_id, self.sequence_number, self.retransmission)
+    }
+}
+
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AckPack {
     pub acked_id: PacketId,
     pub window_size: u32,
 }
+
+impl std::fmt::Display for AckPack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Ack({}, w {})", self.acked_id, self.window_size)
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DataPack {
     pub id: PacketId,
     pub data: Bytes,
+}
+
+impl std::fmt::Display for DataPack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Data({}, s {})", self.id, self.data.len())
+    }
 }
 
 // FIXPERF: Use rkyv ?
@@ -83,6 +102,15 @@ impl StridulPacket {
 
     pub fn data_len(&self) -> usize {
         self.data().map(|b| b.len()).unwrap_or(0)
+    }
+}
+
+impl std::fmt::Display for StridulPacket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StridulPacket::Ack(pack) => write!(f, "{pack}"),
+            StridulPacket::Data(pack) => write!(f, "{pack}")
+        }
     }
 }
 
@@ -164,6 +192,8 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
     ) -> Result<(), StridulError> {
         ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
         assert!((packet.data_len() as u128) <= (Strat::PACKET_MAX_SIZE as u128));
+
+        log::trace!("[{:?}] > {} to {:?}", self.socket.local_addr()?, packet, dest);
 
         // FIXPERF: Memory pool to not alocation each time
         let mut data = BytesMut::new();
@@ -277,10 +307,10 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                     let to_retransmit = to_retransmit.unwrap();
                     // Expanential backoff
                     to_retransmit.rto += to_retransmit.rto * 2;
+                    to_retransmit.packet.id.retransmission
+                        = to_retransmit.packet.id.retransmission.wrapping_add(1);
 
-                    let mut new_pack = to_retransmit.packet.clone();
-                    new_pack.id.retransmission
-                        = new_pack.id.retransmission.wrapping_add(1);
+                    let new_pack = to_retransmit.packet.clone();
                     self.socket.send_raw(
                         &to_retransmit.addr,
                         &new_pack.into()
@@ -290,7 +320,7 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 e = self.socket.socket.recv_from(&mut buffer) => {
                     let (size, addr) = e?;
                     if size > BUFFER_SIZE {
-                        log::trace!(
+                        log::debug!(
                             "[{:?}] Dropped packet from '{addr:?}' with too big payload, bytes may have been dropped",
                             self.socket.local_addr()
                         );
@@ -300,7 +330,7 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                     let packet = match Strat::deserialize(&buffer[..size]) {
                         Ok(p) => p,
                         Err(e) => {
-                            log::trace!(
+                            log::debug!(
                                 "[{:?}] Dropped malformed packet from '{addr:?}' > {e}",
                                 self.socket.local_addr()
                             );
@@ -320,6 +350,7 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
     async fn packet(
         &mut self, addr: Strat::PeersAddr, packet: StridulPacket,
     ) -> Result<ControlFlow<Arc<StridulStream<Strat>>>, StridulError> {
+        log::trace!("[{:?}] < {}", self.socket.local_addr()?, packet);
         match packet {
             StridulPacket::Ack(pack) => {
                 let Some((acked_packet_pos, _)) =
@@ -344,15 +375,8 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 if !flying_packet.ack_send.is_closed() {
                     flying_packet.ack_send.send(()).unwrap();
                 }
-
-                log::trace!(
-                    "[{:?}] Acked packet {:?} after {:?}",
-                    self.socket.local_addr(),
-                    flying_packet.packet.id, flying_packet.sent_at.elapsed()
-                );
             },
             StridulPacket::Data(pack) => {
-                log::trace!("[{:?}] Received packet {pack:?}", self.socket.local_addr());
                 self.socket.send_raw(&addr, &AckPack {
                     acked_id: pack.id,
                     window_size: Strat::BASE_WINDOW_SIZE

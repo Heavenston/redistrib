@@ -35,10 +35,15 @@ struct SortedSpariousBuffer {
 impl SortedSpariousBuffer {
     pub fn insert(&mut self, el: BuffEl) -> BufferOverlap {
         let i = (0usize..self.els.len())
-            .find(|&i| self.els[i].start_idx > el.start_idx)
+            .find(|&i| self.els[i].start_idx >= el.start_idx)
             .unwrap_or(self.els.len());
 
-        // TODO: Detect overlapps
+        // TODO: Detect partial overlaps
+        if let Some(el2) = self.els.get(i) {
+            if el2.start_idx == el.start_idx {
+                return BufferOverlap::Full;
+            }
+        }
 
         self.els.insert(i, el);
 
@@ -171,9 +176,9 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
             bytes: pack.data.clone(),
         });
         let is_there_data = received.contiguous_len() > 0;
+        log::trace!("[{:?}][{}] Recevied {}, {:#?}", self.socket.local_addr()?, self.id, pack, received);
         drop(received);
 
-        log::trace!("[{:?}][{:?}] < {pack:?}", self.socket.local_addr(), self.id);
         if slt != BufferOverlap::None {
             log::trace!("Dropping {slt:?} packet");
             return Ok(false);
