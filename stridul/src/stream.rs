@@ -67,8 +67,8 @@ impl SortedSpariousBuffer {
     ) -> impl Iterator<Item = Bytes> + '_ {
         let len = self.contiguous_len();
 
-        self.flushed += len;
         self.els.drain(..len)
+            .inspect(|el| self.flushed += el.bytes.len())
             .map(|el| el.bytes)
     }
 }
