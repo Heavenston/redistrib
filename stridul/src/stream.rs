@@ -162,14 +162,14 @@ impl<'a> Iterator for ContiguousFlushIterator<'a> {
             (current.start_idx + current.bytes.len())
             .saturating_sub(self.buffer.flushed_bytes);
         debug_assert_ne!(rem_in_curr, 0, "Element with 0 remaning should be removed");
-        log::trace!("{} + {} - {}", current.start_idx, current.bytes.len(), self.buffer.flushed_bytes);
+        log::trace!("First buffer is {} + {} - {}", current.start_idx, current.bytes.len(), self.buffer.flushed_bytes);
 
         let bytes_to_take = if let Some(max) = self.max_remaining_bytes {
             max.min(rem_in_curr)
         } else {
             rem_in_curr
         };
-        log::trace!("Taking {rem_start}..{}", rem_start + bytes_to_take);
+        log::trace!("Taking {} + {rem_start}..{}", self.buffer.flushed_bytes, rem_start + bytes_to_take);
 
         if bytes_to_take == 0 { return None; }
 
@@ -345,6 +345,8 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
     }
 
     pub async fn read(&self, into: &mut impl BufMut) -> usize {
+        let r = self.try_read(into);
+        if r != 0 { return r; }
         self.readable_notify.notified().await;
         self.try_read(into)
     }

@@ -103,6 +103,7 @@ mod tests {
     use bytes::{BytesMut, BufMut, Bytes};
     use tokio::sync::{futures::Notified, Notify};
     use tokio::io::AsyncReadExt;
+    use tokio::time::timeout;
     use rand::prelude::*;
 
     use crate::*;
@@ -191,9 +192,13 @@ mod tests {
         }
     }
 
+    fn setup_logger() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
     #[tokio::test]
     async fn full_a_to_b() -> Result<(), StridulError> {
-        let _ = env_logger::builder().is_test(true).try_init();
+        setup_logger();
 
         let all = Arc::new(AllSockets::default());
         let local_socket_a = LocalSocket::new(&all, 0, 0, 0.);
@@ -243,7 +248,7 @@ mod tests {
 
     #[tokio::test]
     async fn ab_ba_with_packet_drops() -> Result<(), StridulError> {
-        let _ = env_logger::builder().is_test(true).try_init();
+        setup_logger();
 
         let seed1: u64 = 930485893058898908;
         let seed2: u64 = 4859852851008529200;
@@ -296,6 +301,41 @@ mod tests {
         ).await.unwrap()?;
         log::trace!("{:?}", String::from_utf8_lossy(&output2));
         assert_eq!(input2.as_slice(), &output2[..]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn abba_parallel() -> Result<(), StridulError> {
+        setup_logger();
+
+        let seed1: u64 = 38759035;
+        let seed2: u64 = 42357890;
+        let packet_drop: f64 = 0.25;
+
+        let all = Arc::new(AllSockets::default());
+        let local_socket_a = LocalSocket::new(&all, 0, seed1, packet_drop);
+        let (socket_a, mut socket_a_driver) =
+            StridulSocket::<LocalStrategy>::new(local_socket_a);
+        tokio::spawn(async move {
+            loop {
+                socket_a_driver.drive().await.expect("Driving crashed");
+            }
+        });
+
+        let local_socket_b = LocalSocket::new(&all, 1, seed2, packet_drop);
+        let (socket_b, mut socket_b_driver) =
+            StridulSocket::<LocalStrategy>::new(local_socket_b);
+        tokio::spawn(async move {
+            loop {
+                socket_b_driver.drive().await.expect("Driving crashed");
+            }
+        });
+
+        let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr()?)
+            .await;
+        let b2a = socket_b.get_or_create_stream(a2b.id(), socket_a.local_addr()?)
+            .await;
 
         let b2a_input = b"Hi again you !";
         let a2b_input = b"I think this works very well !";
