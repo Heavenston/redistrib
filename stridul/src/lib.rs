@@ -280,7 +280,10 @@ mod tests {
             .await;
         log::info!("Waiting for write");
         let input = b"This message is offfered to you by a very prestigeous company !!!!!";
+        let input2 = b"test";
         a2b.write(input).await?;
+        a2b.flush().await?;
+        a2b.write(input2).await?;
         a2b.flush().await?;
         log::info!("Waiting for stream");
 
@@ -293,6 +296,15 @@ mod tests {
             b2a.reader().read_exact(&mut output)
         ).await.unwrap()?;
         assert_eq!(input.as_slice(), &output[..]);
+
+        let mut output2 = BytesMut::zeroed(input2.len());
+        let _ = tokio::time::timeout(
+            Duration::from_millis(2000),
+            b2a.reader().read_exact(&mut output2)
+        ).await.unwrap()?;
+        log::trace!("{:?}", String::from_utf8_lossy(&output2));
+        assert_eq!(input2.as_slice(), &output2[..]);
+
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 use crate::*;
 
-use std::{time::Duration, sync::{Arc, Mutex, atomic::{AtomicU32, self}}, marker::PhantomData, pin::{Pin, pin}, task::Poll, io::Write};
+use std::{time::Duration, sync::{Arc, Mutex, atomic::{AtomicU32, self}}, marker::PhantomData, pin::{Pin, pin}, task::Poll, io::Write, fmt::Display};
 
 use tokio_util::sync::ReusableBoxFuture;
 use std::future::Future;
@@ -29,9 +29,13 @@ enum BufferOverlap {
 
 #[derive(Debug, Clone, Default)]
 struct SortedSpariousBuffer {
-    pub flushed: usize,
+    /// May be more than the first element start_idx
+    /// This is called over-flush and means that these first
+    /// bytes are already flushed.
+    pub flushed_bytes: usize,
     pub els: Vec<BuffEl>,
 }
+
 impl SortedSpariousBuffer {
     pub fn insert(&mut self, el: BuffEl) -> BufferOverlap {
         let i = (0usize..self.els.len())
@@ -44,6 +48,9 @@ impl SortedSpariousBuffer {
                 return BufferOverlap::Full;
             }
         }
+        if el.start_idx + el.bytes.len() < self.flushed_bytes {
+            return BufferOverlap::Full;
+        }
 
         self.els.insert(i, el);
 
@@ -52,9 +59,12 @@ impl SortedSpariousBuffer {
 
     pub fn contiguouses<'a>(&'a self) -> impl Iterator<Item = &'a BuffEl> {
         self.els.iter()
-            .scan(self.flushed, |s, el| {
+            .scan(self.flushed_bytes, |s, el| {
+                let overflushed_bytes = s.saturating_sub(el.start_idx);
+
                 let start = *s;
-                *s = s.wrapping_add(el.bytes.len());
+                *s = s.wrapping_add(el.bytes.len())
+                      .wrapping_sub(overflushed_bytes);
                 Some((start, el))
             })
             .take_while(|(cumul_idx, el)| {
@@ -67,14 +77,84 @@ impl SortedSpariousBuffer {
         self.contiguouses().count()
     }
 
-    pub fn drain_contiguous(
-        &mut self
-    ) -> impl Iterator<Item = Bytes> + '_ {
-        let len = self.contiguous_len();
+    pub fn contiguous_bytes_len(&self) -> usize {
+        self.contiguouses()
+            .map(|el| el.bytes.len())
+            .sum()
+    }
 
-        self.els.drain(..len)
-            .inspect(|el| self.flushed += el.bytes.len())
-            .map(|el| el.bytes)
+    pub fn drain_contiguous(
+        &mut self, max_bytes: Option<usize>,
+    ) -> ContiguousFlushIterator<'_> {
+        return ContiguousFlushIterator {
+            buffer: self,
+            max_remaining_bytes: max_bytes,
+        };
+    }
+}
+
+impl Display for SortedSpariousBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SortedSpariousBuffer({}", self.flushed_bytes)?;
+        for el in &self.els {
+            write!(f, " -> ({}+{}={})", el.start_idx, el.bytes.len(), el.start_idx + el.bytes.len())?;
+        }
+        write!(f, ")")?;
+
+        Ok(())
+    }
+}
+
+struct ContiguousFlushIterator<'a> {
+    buffer: &'a mut SortedSpariousBuffer,
+    max_remaining_bytes: Option<usize>,
+}
+
+impl<'a> Iterator for ContiguousFlushIterator<'a> {
+    type Item = Bytes;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        log::trace!("{}", self.buffer);
+        let current = self.buffer.els.get(0)?;
+        if current.start_idx > self.buffer.flushed_bytes
+        { return None; }
+
+        // Remainning bytes in the current element
+        // (less than len in case of over flush)
+        let rem_start = self.buffer.flushed_bytes
+            .saturating_sub(current.start_idx);
+        let rem_in_curr =
+            (current.start_idx + current.bytes.len())
+            .saturating_sub(self.buffer.flushed_bytes);
+        debug_assert_ne!(rem_in_curr, 0, "Element with 0 remaning should be removed");
+        log::trace!("{} + {} - {}", current.start_idx, current.bytes.len(), self.buffer.flushed_bytes);
+
+        let bytes_to_take = if let Some(max) = self.max_remaining_bytes {
+            max.min(rem_in_curr)
+        } else {
+            rem_in_curr
+        };
+        log::trace!("Taking {rem_start}..{}", rem_start + bytes_to_take);
+
+        if bytes_to_take == 0 { return None; }
+
+        // FIXPERF: Avoid bytes clone if taking all bytes
+        //          Saves... picoseconds ?
+        let bytes = current.bytes.slice(rem_start..rem_start + bytes_to_take);
+
+        // Remove if fully flushed el
+        // FIXPERF: Bulk remove all elements when iterator is dropped
+        //          to avoid the movement to the left n times
+        if bytes_to_take == rem_in_curr
+        { self.buffer.els.remove(0); }
+
+        self.buffer.flushed_bytes += bytes_to_take;
+
+        if let Some(max) = &mut self.max_remaining_bytes {
+            *max = max.saturating_sub(bytes_to_take);
+        }
+
+        Some(bytes)
     }
 }
 
@@ -176,11 +256,11 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
             bytes: pack.data.clone(),
         });
         let is_there_data = received.contiguous_len() > 0;
-        log::trace!("[{:?}][{}] Recevied {}, {:#?}", self.socket.local_addr()?, self.id, pack, received);
+        log::trace!("[{:?}][{}] Recevied {}, {}", self.socket.local_addr()?, self.id, pack, received);
         drop(received);
 
         if slt != BufferOverlap::None {
-            log::trace!("Dropping {slt:?} packet");
+            log::trace!("Dropping BufferOverlap::{slt:?} packet");
             return Ok(false);
         }
 
@@ -224,7 +304,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
 
     pub fn try_read(&self, into: &mut impl BufMut) -> usize {
         self.received.lock().unwrap()
-            .drain_contiguous()
+            .drain_contiguous(Some(into.remaining_mut()))
             .map(|x| { into.put_slice(&*x); x.len() })
             .sum()
     }
@@ -277,13 +357,20 @@ impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        match self.notify.as_mut().poll(cx) {
-            Poll::Ready(()) => (),
-            Poll::Pending => return Poll::Pending,
+        // FIXPERF: Maybe try lock ?
+        let already_present_bytes =
+            self.stream.received.lock().unwrap().contiguous_len();
+
+        if already_present_bytes == 0 {
+            match self.notify.as_mut().poll(cx) {
+                Poll::Ready(()) => (),
+                Poll::Pending => return Poll::Pending,
+            }
         }
 
         self.stream.received.lock().unwrap()
-            .drain_contiguous().for_each(|x| {
+            .drain_contiguous(Some(buf.remaining_mut()))
+            .for_each(|x| {
                 buf.put_slice(&x)
             });
 
