@@ -38,17 +38,7 @@ impl SortedSpariousBuffer {
             .find(|&i| self.els[i].start_idx > el.start_idx)
             .unwrap_or(self.els.len());
 
-        // Note: Next one is the current index one because after insertion
-        // it will be moved to the right
-        // let previous = &self.els[i.saturating_sub(1)];
-        // let next = &self.els[i.clamp(0, self.els.len()-1)];
-        if i > 0 {
-            todo!("Left overlap")
-        }
-        if i < self.els.len().saturating_sub(1) {
-            // let _ = next;
-            todo!("Right overlap")
-        }
+        // TODO: Detect overlapps
 
         self.els.insert(i, el);
 
@@ -122,6 +112,8 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
         let packet_count = sendable_now.div_ceil(packet_sizes);
         for _ in 0..packet_count {
             let remaining_len = write_buffer.len();
+            if remaining_len == 0
+            { break }
             let bytes = write_buffer.split_to(
                 (packet_sizes as usize).min(remaining_len)
             ).freeze();

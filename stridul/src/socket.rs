@@ -166,7 +166,8 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
         assert!((packet.data_len() as u128) <= (Strat::PACKET_MAX_SIZE as u128));
 
         // FIXPERF: Memory pool to not alocation each time
-        let data = bincode::serialize(packet)?;
+        let mut data = BytesMut::new();
+        Strat::serialize(packet, &mut data)?;
         let sent = self.socket.send_to(&data, dest).await?;
         assert_eq!(sent, data.len());
         Ok(())
@@ -293,16 +294,13 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                         continue;
                     }
 
-                    let deser_options = bincode::config::DefaultOptions::new()
-                        .with_limit(1024);
-                    let mut deser = bincode::Deserializer::from_slice(
-                        &buffer, deser_options
-                    );
-                    let Ok(packet) = serde::Deserialize::deserialize(&mut deser)
-                        else {
-                            log::trace!("Dropped malformed packet from '{addr:?}'");
+                    let packet = match Strat::deserialize(&buffer[..size]) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::trace!("Dropped malformed packet from '{addr:?}' > {e}");
                             continue;
-                        };
+                        }
+                    };
 
                     match self.packet(addr, packet).await? {
                         ControlFlow::Continue(()) => (),
@@ -347,7 +345,7 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 );
             },
             StridulPacket::Data(pack) => {
-                log::trace!("Received packet {pack:#?}");
+                log::trace!("Received packet {pack:?}");
                 self.socket.send_raw(&addr, &AckPack {
                     acked_id: pack.id,
                     window_size: Strat::BASE_WINDOW_SIZE

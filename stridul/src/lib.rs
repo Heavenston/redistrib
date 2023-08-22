@@ -7,6 +7,7 @@
 
 mod one_writer_rwlock;
 mod socket;
+use bytes::BufMut;
 pub use socket::*;
 mod stream;
 pub use stream::*;
@@ -29,6 +30,8 @@ pub enum StridulError {
     OtherIoError(#[from] tokio::io::Error),
     #[error(transparent)]
     BincodeError(#[from] bincode::Error),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 impl Into<std::io::Error> for StridulError {
@@ -79,6 +82,15 @@ pub trait StridulStrategy: Sized {
     const BASE_WINDOW_SIZE: u32;
     const BASE_RTO: Duration;
     const PACKET_MAX_SIZE: u32;
+
+    fn serialize(packet: &impl serde::Serialize, into: &mut impl BufMut)
+        -> Result<(), StridulError> {
+        Ok(bincode::serialize_into(into.writer(), packet)?)
+    }
+    fn deserialize<D>(bytes: &[u8]) -> Result<D, StridulError>
+        where D: for<'a> serde::Deserialize<'a> {
+        Ok(bincode::deserialize_from(bytes)?)
+    }
 }
 
 pub struct StridulUDPStrategy;
@@ -93,10 +105,12 @@ impl StridulStrategy for StridulUDPStrategy {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::{collections::HashMap, sync::Mutex};
 
     use bytes::{BytesMut, BufMut, Bytes};
     use tokio::sync::{futures::Notified, Notify};
+    use tokio::io::AsyncReadExt;
 
     use crate::*;
 
@@ -108,7 +122,7 @@ mod tests {
     struct LocalSocket {
         all: Arc<AllSockets>,
         new_data: Notify,
-        recv_buffer: Mutex<Vec<(u32, Bytes)>>,
+        recv_buffer: Mutex<VecDeque<(u32, Bytes)>>,
         addr: u32,
     }
 
@@ -133,10 +147,10 @@ mod tests {
         async fn send_to(
             &self, bytes: &[u8], target: &u32
         ) -> Result<usize, StridulError> {
-            println!("Writing {:?}", bytes);
+            log::info!("Writing > {}", String::from_utf8_lossy(bytes));
             let sockets = self.all.sockets.lock().unwrap();
             let t = sockets.get(target).unwrap();
-            t.recv_buffer.lock().unwrap().push((self.addr, Bytes::from(bytes.to_vec())));
+            t.recv_buffer.lock().unwrap().push_front((self.addr, Bytes::from(bytes.to_vec())));
             t.new_data.notify_one();
             Ok(bytes.len())
         }
@@ -145,9 +159,9 @@ mod tests {
             &self, bytes: &mut [u8]
         ) -> Result<(usize, u32), StridulError> {
             let (sender, data) = loop {
-                self.new_data.notified().await;
-                if let Some(x) = self.recv_buffer.lock().unwrap().pop()
+                if let Some(x) = self.recv_buffer.lock().unwrap().pop_back()
                 { break x };
+                self.new_data.notified().await;
             };
             let copy_size = bytes.len().min(data.len());
             (&mut bytes[..copy_size]).copy_from_slice(&data[..copy_size]);
@@ -163,6 +177,15 @@ mod tests {
         const BASE_WINDOW_SIZE: u32 = 32;
         const BASE_RTO: Duration = Duration::from_millis(1);
         const PACKET_MAX_SIZE: u32 = 8;
+
+        fn serialize(packet: &impl serde::Serialize, into: &mut impl BufMut)
+            -> Result<(), StridulError> {
+            Ok(serde_json::to_writer(into.writer(), packet).map_err(anyhow::Error::from)?)
+        }
+        fn deserialize<D>(bytes: &[u8]) -> Result<D, StridulError>
+            where D: for<'a> serde::Deserialize<'a> {
+            Ok(serde_json::from_slice(bytes).map_err(anyhow::Error::from)?)
+        }
     }
 
     #[tokio::test]
@@ -186,13 +209,31 @@ mod tests {
         let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr()?)
             .await;
         log::info!("Waiting for write");
-        a2b.write(b"Hi harry potter how are you !!").await?;
+        let input = b"Hi harry potter how are you !!!";
+        a2b.write(input).await?;
         a2b.flush().await?;
         log::info!("Waiting for stream");
 
-        let b2a = socket_b_driver.drive().await?;
+        let b2a = tokio::time::timeout(
+            Duration::from_millis(1000),
+            socket_b_driver.drive(),
+        ).await.unwrap()?;
         assert_eq!(b2a.id(), a2b.id());
         assert_eq!(*b2a.peer_addr(), socket_a.local_addr()?);
+
+        tokio::spawn(async move {
+            loop {
+                socket_b_driver.drive().await.expect("Driving crashed");
+            }
+        });
+
+        let mut output = BytesMut::zeroed(input.len());
+        let _ = tokio::time::timeout(
+            Duration::from_millis(1000),
+            b2a.reader().read_exact(&mut output)
+        ).await.unwrap()?;
+
+        assert_eq!(input.as_slice(), &output[..]);
 
         Ok(())
     }
