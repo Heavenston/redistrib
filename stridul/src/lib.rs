@@ -1,5 +1,6 @@
 #![feature(int_roundings)]
 #![feature(async_fn_in_trait)]
+#![feature(core_intrinsics)]
 #![feature(io_error_other)]
 
 #![allow(unused_imports)]
@@ -32,15 +33,6 @@ pub enum StridulError {
     BincodeError(#[from] bincode::Error),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
-}
-
-impl Into<std::io::Error> for StridulError {
-    fn into(self) -> std::io::Error {
-        match self {
-            Self::OtherIoError(io) => io,
-            e => std::io::Error::other(e)
-        }
-    }
 }
 
 pub trait StridulStartSocket<Strat: StridulStrategy> {
@@ -250,7 +242,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ab_with_packet_drops() -> Result<(), StridulError> {
+    async fn ab_ba_with_packet_drops() -> Result<(), StridulError> {
         let _ = env_logger::builder().is_test(true).try_init();
 
         let seed1: u64 = 930485893058898908;
@@ -304,6 +296,38 @@ mod tests {
         ).await.unwrap()?;
         log::trace!("{:?}", String::from_utf8_lossy(&output2));
         assert_eq!(input2.as_slice(), &output2[..]);
+
+        let b2a_input = b"Hi again you !";
+        let a2b_input = b"I think this works very well !";
+        b2a.write(b2a_input).await?;
+        b2a.flush().await?;
+        a2b.write(a2b_input).await?;
+        a2b.flush().await?;
+
+        let ta = tokio::spawn(async move {
+            let mut b2a_output = BytesMut::zeroed(b2a_input.len());
+            let _ = tokio::time::timeout(
+                Duration::from_millis(2000),
+                a2b.reader().read_exact(&mut b2a_output)
+            ).await.unwrap()?;
+            assert_eq!(b2a_input.as_slice(), &b2a_output[..]);
+
+            Ok::<(), StridulError>(())
+        });
+
+        let tb = tokio::spawn(async move {
+            let mut a2b_output = BytesMut::zeroed(a2b_input.len());
+            let _ = tokio::time::timeout(
+                Duration::from_millis(2000),
+                b2a.reader().read_exact(&mut a2b_output)
+            ).await.unwrap()?;
+            assert_eq!(a2b_input.as_slice(), &a2b_output[..]);
+
+            Ok::<(), StridulError>(())
+        });
+
+        ta.await.unwrap()?;
+        tb.await.unwrap()?;
 
         Ok(())
     }

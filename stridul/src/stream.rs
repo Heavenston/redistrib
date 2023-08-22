@@ -68,7 +68,7 @@ impl SortedSpariousBuffer {
                 Some((start, el))
             })
             .take_while(|(cumul_idx, el)| {
-                el.start_idx == *cumul_idx
+                el.start_idx <= *cumul_idx
             })
             .map(|x| x.1)
     }
@@ -358,14 +358,16 @@ impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         // FIXPERF: Maybe try lock ?
-        let already_present_bytes =
-            self.stream.received.lock().unwrap().contiguous_len();
-
-        if already_present_bytes == 0 {
+        while self.stream.received.lock().unwrap().contiguous_bytes_len() == 0 {
             match self.notify.as_mut().poll(cx) {
                 Poll::Ready(()) => (),
                 Poll::Pending => return Poll::Pending,
             }
+            // Replace the old notify future that is now useless
+            // with a new one, reregistering to wait for data
+            let mut n = Box::pin(self.stream.readable_notify.notified());
+            n.as_mut().enable();
+            self.notify = n;
         }
 
         self.stream.received.lock().unwrap()
@@ -373,12 +375,6 @@ impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
             .for_each(|x| {
                 buf.put_slice(&x)
             });
-
-        // Replace the old notify future that is now useless
-        // with a new one, reregistering to wait for data
-        let mut n = Box::pin(self.stream.readable_notify.notified());
-        n.as_mut().enable();
-        self.notify = n;
 
         Poll::Ready(Ok(()))
     }
@@ -438,7 +434,7 @@ impl<'a, Strat: StridulStrategy> AsyncWrite for StridulStreamWriter<'a, Strat> {
         match f.as_mut().poll(cx) {
             Poll::Ready(r) => {
                 self.flushing = None;
-                Poll::Ready(r.map_err(Into::into))
+                Poll::Ready(r.map_err(std::io::Error::other))
             },
             Poll::Pending
                 => Poll::Pending,
