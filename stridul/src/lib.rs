@@ -1,5 +1,4 @@
 #![feature(int_roundings)]
-#![feature(async_fn_in_trait)]
 #![feature(core_intrinsics)]
 #![feature(io_error_other)]
 
@@ -35,7 +34,8 @@ pub enum StridulError {
     Other(#[from] anyhow::Error),
 }
 
-pub trait StridulStartSocket<Strat: StridulStrategy> {
+#[async_trait::async_trait]
+pub trait StridulStartSocket<Strat: StridulStrategy>: Send + Sync + 'static {
     fn local_addr(&self) -> Result<Strat::PeersAddr, StridulError>;
 
     async fn send_to(
@@ -47,6 +47,7 @@ pub trait StridulStartSocket<Strat: StridulStrategy> {
     ) -> Result<(usize, Strat::PeersAddr), StridulError>;
 }
 
+#[async_trait::async_trait]
 impl<Strat> StridulStartSocket<Strat> for UdpSocket
     where Strat: StridulStrategy<PeersAddr = SocketAddr>
 {
@@ -67,9 +68,9 @@ impl<Strat> StridulStartSocket<Strat> for UdpSocket
     }
 }
 
-pub trait StridulStrategy: Sized {
+pub trait StridulStrategy: Sized + 'static {
     type Socket: StridulStartSocket<Self>;
-    type PeersAddr: Debug + Clone + PartialEq + Eq + Hash;
+    type PeersAddr: Debug + Clone + PartialEq + Eq + Hash + Send + Sync + 'static;
 
     const BASE_WINDOW_SIZE: u32;
     const BASE_RTO: Duration;
@@ -142,6 +143,7 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl StridulStartSocket<LocalStrategy> for Arc<LocalSocket> {
         fn local_addr(&self) -> Result<u32, StridulError> {
             Ok(self.addr)

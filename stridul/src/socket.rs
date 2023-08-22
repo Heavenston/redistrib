@@ -347,6 +347,14 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
         }
     }
 
+    pub fn self_driving(mut self) -> tokio::task::JoinHandle<Result<(), StridulError>> {
+        tokio::spawn(async move {
+            loop {
+                self.drive().await?;
+            }
+        })
+    }
+
     async fn packet(
         &mut self, addr: Strat::PeersAddr, packet: StridulPacket,
     ) -> Result<ControlFlow<Arc<StridulStream<Strat>>>, StridulError> {
