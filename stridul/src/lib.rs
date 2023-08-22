@@ -184,15 +184,6 @@ mod tests {
         const BASE_WINDOW_SIZE: u32 = 32;
         const BASE_RTO: Duration = Duration::from_millis(10);
         const PACKET_MAX_SIZE: u32 = 8;
-
-        fn serialize(packet: &impl serde::Serialize, into: &mut impl BufMut)
-            -> Result<(), StridulError> {
-            Ok(serde_json::to_writer(into.writer(), packet).map_err(anyhow::Error::from)?)
-        }
-        fn deserialize<D>(bytes: &[u8]) -> Result<D, StridulError>
-            where D: for<'a> serde::Deserialize<'a> {
-            Ok(serde_json::from_slice(bytes).map_err(anyhow::Error::from)?)
-        }
     }
 
     fn setup_logger() {
