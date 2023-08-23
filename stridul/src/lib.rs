@@ -11,6 +11,8 @@ use bytes::BufMut;
 pub use socket::*;
 mod stream;
 pub use stream::*;
+mod sparious_buffer;
+pub(crate) use sparious_buffer::*;
 
 use std::{net::SocketAddr, time::Duration, sync::Arc, hash::Hash, fmt::Debug};
 
