@@ -2,14 +2,14 @@ use crate::*;
 
 use std::{
     time::{Duration, Instant}, sync::{Arc, RwLock, Mutex},
-    collections::HashMap, ops::ControlFlow, mem::size_of
+    collections::HashMap, ops::ControlFlow, mem::size_of, fmt::Display
 };
 
 use static_assertions as ca;
 use bincode::Options;
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
-use tokio::{net::{UdpSocket, ToSocketAddrs}, stream, time as ttime, sync::oneshot};
+use tokio::{net::{UdpSocket, ToSocketAddrs}, stream, time as ttime, sync::{mpsc, oneshot}};
 use thiserror::Error;
 use futures::future::Either as fEither;
 
@@ -126,12 +126,23 @@ impl From<DataPack> for StridulPacket {
 }
 
 type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
+
+#[derive(Debug)]
 pub(crate) struct InFlightPacket<Strat: StridulStrategy> {
     pub packet: DataPack,
     pub addr: Strat::PeersAddr,
     pub sent_at: Instant,
     pub rto: Duration,
     pub ack_send: oneshot::Sender<()>,
+}
+
+impl<Strat: StridulStrategy> Display for InFlightPacket<Strat> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "InFlightPacket({}, sender {:?}, sent {}ms, rto {}ms)",
+            self.packet, self.addr, self.sent_at.elapsed().as_millis(),
+            self.rto.as_millis()
+        )
+    }
 }
 
 #[derive(derivative::Derivative, thiserror::Error)]
@@ -144,7 +155,7 @@ pub enum CreateStreamError<Strat: StridulStrategy> {
 pub struct StridulSocket<Strat: StridulStrategy> {
     socket: Strat::Socket,
 
-    reliable_in_flight: FlumePipe<InFlightPacket<Strat>>,
+    packets_in_flight_send: mpsc::Sender<InFlightPacket<Strat>>,
     created_streams: FlumePipe<(
         Arc<StridulStream<Strat>>, oneshot::Sender<Result<(), CreateStreamError<Strat>>>
     )>,
@@ -154,13 +165,24 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
     pub fn new(
         socket: Strat::Socket
     ) -> (Arc<Self>, StridulSocketDriver<Strat>) {
+        let (
+            packets_in_flight_send, packets_in_flight_recv
+        ) = mpsc::channel(2048);
+
         let this = Arc::new(Self {
             socket,
 
-            reliable_in_flight: flume::unbounded(),
+            packets_in_flight_send,
             created_streams: flume::unbounded(),
         });
-        let driver = StridulSocketDriver::new(Arc::clone(&this));
+        let driver = StridulSocketDriver {
+            socket: Arc::clone(&this),
+            packets_in_flight_recv,
+
+            streams: default(),
+            packets_in_flight: default(),
+            acks_not_processed: default(),
+        };
         (this, driver)
     }
 
@@ -212,7 +234,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
         self.send_raw(&dest, &packet.clone().into()).await?;
 
         let (ack_send, ack_recv) = oneshot::channel();
-        self.reliable_in_flight.0.send_async(InFlightPacket {
+        self.packets_in_flight_send.send(InFlightPacket {
             packet,
             addr: dest,
             sent_at: Instant::now(),
@@ -233,6 +255,8 @@ pub struct StridulSocketDriver<Strat: StridulStrategy> {
         Strat::PeersAddr, HashMap<StreamID, Arc<StridulStream<Strat>>>
     >,
 
+    packets_in_flight_recv: mpsc::Receiver<InFlightPacket<Strat>>,
+
     /// The list of all packets that has not been acknoledged yet
     /// Sorted from oldest to newest
     packets_in_flight: Vec<InFlightPacket<Strat>>,
@@ -242,17 +266,6 @@ pub struct StridulSocketDriver<Strat: StridulStrategy> {
 }
 
 impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
-    fn new(socket: Arc<StridulSocket<Strat>>) -> Self {
-        Self {
-            socket,
-
-            streams: default(),
-
-            packets_in_flight: default(),
-            acks_not_processed: default(),
-        }
-    }
-
     /// Drives the socket until a new stream is received
     ///
     /// Must be called in a loop as no packet can be received while this is
@@ -299,7 +312,8 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                     }
                 }
 
-                Ok(p) = self.socket.reliable_in_flight.1.recv_async() => {
+                Some(p) = self.packets_in_flight_recv.recv() => {
+                    log::trace!("[{:?}] In flight: {p}", self.socket.local_addr()?);
                     self.packets_in_flight.push(p);
                 }
                 
@@ -358,17 +372,22 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
     async fn packet(
         &mut self, addr: Strat::PeersAddr, packet: StridulPacket,
     ) -> Result<ControlFlow<Arc<StridulStream<Strat>>>, StridulError> {
-        log::trace!("[{:?}] < {}", self.socket.local_addr()?, packet);
+        log::trace!("[{:?}] < {} from {:?}", self.socket.local_addr()?, packet, addr);
         match packet {
             StridulPacket::Ack(pack) => {
-                let Some((acked_packet_pos, _)) =
+                let Some((flying_packet_pos, flying_packet)) =
                     self.packets_in_flight.iter().enumerate()
                     .filter(|(_, x)| x.addr == addr)
-                    .find(|(_, x)| x.packet.id == pack.acked_id.with_rt(0))
+                    .find(|(_, x)| x.packet.id.with_rt(0) == pack.acked_id.with_rt(0))
                 else {
+                    log::trace!("[{:?}] Keeping ack for later", self.socket.local_addr()?);
+                    for pif in &self.packets_in_flight {
+                        log::trace!("- {}", pif.packet.id.with_rt(0));
+                    }
                     self.acks_not_processed.push((pack, addr));
                     return Ok(ControlFlow::Continue(()));
                 };
+                log::trace!("[{:?}] Dropping {flying_packet}", self.socket.local_addr()?);
                 // Get the stream of the acked packet to notify it of the
                 // acknoledgment
                 let stream = self.streams.get(&addr)
@@ -378,14 +397,13 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 }
                 // Remove the packet from the pending-ack list
                 let flying_packet =
-                    self.packets_in_flight.remove(acked_packet_pos);
+                    self.packets_in_flight.remove(flying_packet_pos);
 
                 if !flying_packet.ack_send.is_closed() {
                     flying_packet.ack_send.send(()).unwrap();
                 }
             },
             StridulPacket::Data(pack) => {
-
                 let (is_new_stream, stream) = self.streams.get(&addr)
                     .and_then(|addr_streams|
                         addr_streams

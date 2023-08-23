@@ -149,7 +149,7 @@ impl<'a> Iterator for ContiguousFlushIterator<'a> {
     type Item = Bytes;
 
     fn next(&mut self) -> Option<Self::Item> {
-        log::trace!("{}", self.buffer);
+        log::trace!("Buffer next - {}", self.buffer);
         let current = self.buffer.els.get(0)?;
         if current.start_idx > self.buffer.flushed_bytes
         { return None; }

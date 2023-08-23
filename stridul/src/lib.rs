@@ -68,7 +68,7 @@ impl<Strat> StridulStartSocket<Strat> for UdpSocket
     }
 }
 
-pub trait StridulStrategy: Sized + 'static {
+pub trait StridulStrategy: Debug + Sized + 'static {
     type Socket: StridulStartSocket<Self>;
     type PeersAddr: Debug + Clone + PartialEq + Eq + Hash + Send + Sync + 'static;
 
@@ -87,6 +87,7 @@ pub trait StridulStrategy: Sized + 'static {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct StridulUDPStrategy;
 impl StridulStrategy for StridulUDPStrategy {
     type Socket = UdpSocket;
@@ -180,6 +181,7 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy)]
     struct LocalStrategy;
     impl StridulStrategy for LocalStrategy {
         type Socket = Arc<LocalSocket>;
