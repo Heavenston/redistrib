@@ -111,6 +111,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
         pack: DataPack,
     ) -> Result<Option<u32>, StridulError> {
         let mut received = self.received.lock().unwrap();
+
         let slt = received.insert(BuffEl {
             start_idx: pack.id.sequence_number.try_into().unwrap(),
             bytes: pack.data.clone(),
@@ -121,12 +122,21 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
         log::trace!("[{:?}][{}] Recevied {}, {}", self.socket.local_addr()?, self.id, pack, received);
         drop(received);
 
-        if let Err(e) = slt {
-            log::trace!("Dropping {e:?} packet");
-            return Ok(None);
+        match slt {
+            Ok(_) => (),
+            // Full overlaps are duplicates which are expected,
+            // we still need to Ack them because of,,, numerous situations
+            Err(BufferInsertError::FullOverlap) => log::trace!("Duplicate packet, {pack}"),
+            Err(BufferInsertError::PartialOverlap) => {
+                log::warn!("Unexpected, maybe malicious packet, {pack}");
+                return Ok(None);
+            },
+            Err(BufferInsertError::WouldOverflow) => {
+                log::trace!("Dropping would overflow packet, {pack}");
+                return Ok(None);
+            },
         }
 
-        // FIXPERF: Do not re compute the contiguous len?
         if is_there_data {
             // Wake up anyone waiting for data
             self.readable_notify.notify_one();

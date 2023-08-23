@@ -1,7 +1,7 @@
 use crate::*;
 
 use std::{
-    time::{Duration, Instant}, sync::{Arc, RwLock, Mutex},
+    time::{Duration, Instant}, sync::{Arc, RwLock, Mutex, Weak},
     collections::HashMap, ops::ControlFlow, mem::size_of, fmt::Display
 };
 
@@ -188,6 +188,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
 
             streams: default(),
             packets_in_flight: default(),
+            streams_with_window_0: default(),
         };
         (this, driver)
     }
@@ -277,6 +278,8 @@ pub struct StridulSocketDriver<Strat: StridulStrategy> {
     /// The list of all packets that has not been acknoledged yet
     /// Sorted from oldest to newest
     packets_in_flight: Vec<InFlightPacket<Strat>>,
+
+    streams_with_window_0: Vec<(Weak<StridulStream<Strat>>, Instant)>,
 }
 
 impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
@@ -300,6 +303,30 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                 Some(l) => fEither::Left(
                     ttime::sleep_until(
                         ttime::Instant::from_std(l.sent_at + l.rto)
+                    )
+                ),
+                None => fEither::Right(
+                    std::future::pending()
+                ),
+            };
+
+            // Get the next stream with a window of 0 that needs to be resolved
+            // Or one about a stream that have been dropped that needs to be
+            // removed
+            let to_stream_resolve_0 = self.streams_with_window_0.iter()
+                .enumerate()
+                .map(|(index, (s, a))| {
+                    if s.upgrade().is_none() {
+                        return (index, s.clone(), Instant::now());
+                    }
+
+                    (index, s.clone(), *a + Strat::STREAM_0_RESOLVE_TIMEOUT)
+                })
+                .min_by_key(|(_, _, a)| *a);
+            let next_stream_resolve_0 = match to_stream_resolve_0.as_ref() {
+                Some(s) => fEither::Left(
+                    ttime::sleep_until(
+                        ttime::Instant::from_std(s.2)
                     )
                 ),
                 None => fEither::Right(
@@ -347,6 +374,21 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                         &to_retransmit.addr,
                         &new_pack.into()
                     ).await?;
+                }
+
+                _ = next_stream_resolve_0 => {
+                    let (index, stream, _) = to_stream_resolve_0.unwrap();
+                    self.streams_with_window_0.remove(index);
+                    let Some(upgraded) = stream.upgrade()
+                        else { continue; };
+                    self.socket.send_raw(upgraded.peer_addr(), &DataPack {
+                        id: PacketId {
+                            stream_id: upgraded.id(),
+                            sequence_number: 0,
+                            retransmission: 0,
+                        },
+                        data: Bytes::new(),
+                    }.into()).await?;
                 }
 
                 e = self.socket.socket.recv_from(&mut buffer) => {
@@ -399,6 +441,17 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                     .and_then(|sts| sts.get(&pack.acked_id.stream_id));
                 if let Some(stream) = stream {
                     stream.handle_ack_pack(pack).await?;
+
+                    if pack.window_size == 0 {
+                        let dwgrd = Arc::downgrade(stream);
+                        let is_in = self.streams_with_window_0.iter()
+                            .any(|(s, _)| s.ptr_eq(&dwgrd));
+                        if !is_in {
+                            self.streams_with_window_0.push(
+                                (Arc::downgrade(stream), Instant::now())
+                            );
+                        }
+                    }
                 }
 
                 let Some((flying_packet_pos, flying_packet)) =
