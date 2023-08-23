@@ -402,19 +402,20 @@ impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         // FIXPERF: Maybe try lock ?
-        while self.stream.received.lock().unwrap().contiguous_bytes_len() == 0 {
+        let mut received = self.stream.received.lock().unwrap();
+        let there_is_data = received.contiguous_bytes_len() > 0;
+
+        while !there_is_data {
             match self.notify.as_mut().poll(cx) {
                 Poll::Ready(()) => (),
                 Poll::Pending => return Poll::Pending,
             }
             // Replace the old notify future that is now useless
             // with a new one, reregistering to wait for data
-            let mut n = Box::pin(self.stream.readable_notify.notified());
-            n.as_mut().enable();
-            self.notify = n;
+            self.notify = Box::pin(self.stream.readable_notify.notified());
         }
 
-        self.stream.received.lock().unwrap()
+        received
             .drain_contiguous(Some(buf.remaining_mut()))
             .for_each(|x| {
                 buf.put_slice(&x)
