@@ -1,0 +1,218 @@
+--- STDERR:              stridul::udp_simple udp_ab_ab_ab_multithreaded ---
+[0ms udp_simple INFO] Socket 0 has addr 127.0.0.1:55023
+[0ms udp_simple INFO] Socket 1 has addr 127.0.0.1:55790
+[0ms udp_simple INFO] Socket 2 has addr 127.0.0.1:50434
+[0ms udp_simple INFO] Running sequence 0
+[0ms udp_simple INFO] Sending 4096 bytes from 0 to 1
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq0, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq0, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq0, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s0, seq0, x0), w 3584) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s0, seq0, x0), w 3584) from 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq512, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq512, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq512, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512) -> (512+512=1024))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s0, seq512, x0), w 3072) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq1024, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq1536, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq2048, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq1024, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq1024, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512) -> (512+512=1024) -> (1024+512=1536))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s0, seq1024, x0), w 2560) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq2560, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq3072, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq1536, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq1536, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512) -> (512+512=1024) -> (1024+512=1536) -> (1536+512=2048))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s0, seq1536, x0), w 2048) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq2048, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq3584, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq2048, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512) -> (512+512=1024) -> (1024+512=1536) -> (1536+512=2048) -> (2048+512=2560))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s0, seq2048, x0), w 1536) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq2560, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s0, seq0, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq2560, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512) -> (512+512=1024) -> (1024+512=1536) -> (1536+512=2048) -> (2048+512=2560) -> (2560+512=3072))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s0, seq2560, x0), w 1024) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s0, seq512, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s0, seq1024, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq3072, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s0, seq1536, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq3072, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512) -> (512+512=1024) -> (1024+512=1536) -> (1536+512=2048) -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s0, seq3072, x0), w 512) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s0, seq2048, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s0, seq2560, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s0, seq3072, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq3584, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s0, seq3584, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq3584, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512) -> (512+512=1024) -> (1024+512=1536) -> (1536+512=2048) -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s0, seq3584, x0), w 0) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s0, seq512, x0), w 3072) from 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s0, seq512, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s0, seq1024, x0), w 2560) from 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s0, seq1024, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(0 -> (0+512=512) -> (512+512=1024) -> (1024+512=1536) -> (1536+512=2048) -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[0ms stridul::sparious_buffer TRACE] First buffer is 0 + 512 - 0
+[0ms stridul::sparious_buffer TRACE] Taking 0 + 0..512
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s0, seq1536, x0), w 2048) from 127.0.0.1:55790
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(512 -> (512+512=1024) -> (1024+512=1536) -> (1536+512=2048) -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[0ms stridul::sparious_buffer TRACE] First buffer is 512 + 512 - 512
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s0, seq1536, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::sparious_buffer TRACE] Taking 512 + 0..512
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(1024 -> (1024+512=1536) -> (1536+512=2048) -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[0ms stridul::sparious_buffer TRACE] First buffer is 1024 + 512 - 1024
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s0, seq2048, x0), w 1536) from 127.0.0.1:55790
+[0ms stridul::sparious_buffer TRACE] Taking 1024 + 0..512
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(1536 -> (1536+512=2048) -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s0, seq2048, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::sparious_buffer TRACE] First buffer is 1536 + 512 - 1536
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s0, seq2560, x0), w 1024) from 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s0, seq2560, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::sparious_buffer TRACE] Taking 1536 + 0..512
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(2048 -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[0ms stridul::sparious_buffer TRACE] First buffer is 2048 + 512 - 2048
+[0ms stridul::sparious_buffer TRACE] Taking 2048 + 0..512
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s0, seq3072, x0), w 512) from 127.0.0.1:55790
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(2560 -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[0ms stridul::sparious_buffer TRACE] First buffer is 2560 + 512 - 2560
+[0ms stridul::sparious_buffer TRACE] Taking 2560 + 0..512
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s0, seq3072, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(3072 -> (3072+512=3584) -> (3584+512=4096))
+[0ms stridul::sparious_buffer TRACE] First buffer is 3072 + 512 - 3072
+[0ms stridul::sparious_buffer TRACE] Taking 3072 + 0..512
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(3584 -> (3584+512=4096))
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s0, seq3584, x0), w 0) from 127.0.0.1:55790
+[0ms stridul::sparious_buffer TRACE] First buffer is 3584 + 512 - 3584
+[0ms stridul::sparious_buffer TRACE] Taking 3584 + 0..512
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s0, seq3584, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(4096)
+[0ms udp_simple INFO] Sending 2048 bytes from 0 to 1
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq0, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq512, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq0, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq0, x0), s 512), SortedSpariousBuffer(0 -> (0+512=512))
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq0, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq0, x0), w 3584) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq512, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(0 -> (0+512=512))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq512, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::sparious_buffer TRACE] First buffer is 0 + 512 - 0
+[0ms stridul::sparious_buffer TRACE] Taking 0 + 0..512
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(512)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq0, x0), w 3584) from 127.0.0.1:55790
+[0ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq512, x0), s 512), SortedSpariousBuffer(512 -> (512+512=1024))
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq1024, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq512, x0), w 3584) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq1024, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq1024, x0), s 512), SortedSpariousBuffer(512 -> (512+512=1024) -> (1024+512=1536))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq1024, x0), w 3072) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq1536, x0), s 512) to 127.0.0.1:55790
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(512 -> (512+512=1024) -> (1024+512=1536))
+[0ms stridul::sparious_buffer TRACE] First buffer is 512 + 512 - 512
+[0ms stridul::sparious_buffer TRACE] Taking 512 + 0..512
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(1024 -> (1024+512=1536))
+[0ms stridul::sparious_buffer TRACE] First buffer is 1024 + 512 - 1024
+[0ms stridul::sparious_buffer TRACE] Taking 1024 + 0..512
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(1536)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq0, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq1536, x0), s 512) from 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq1024, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq1536, x0), s 512), SortedSpariousBuffer(1536 -> (1536+512=2048))
+[0ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq1536, x0), w 3584) to 127.0.0.1:55023
+[0ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq1536, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(1536 -> (1536+512=2048))
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq512, x0), w 3584) from 127.0.0.1:55790
+[0ms stridul::sparious_buffer TRACE] First buffer is 1536 + 512 - 1536
+[0ms stridul::sparious_buffer TRACE] Taking 1536 + 0..512
+[0ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(2048)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq512, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq1024, x0), w 3072) from 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq1024, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq1536, x0), w 3584) from 127.0.0.1:55790
+[0ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq1536, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[0ms udp_simple INFO] Running sequence 1
+[0ms udp_simple INFO] Sending 1024 bytes from 0 to 1
+[1ms udp_simple INFO] Sending 2592 bytes from 0 to 1
+[1ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq2048, x0), s 512) to 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq2560, x0), s 512) to 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq2048, x0), s 512) from 127.0.0.1:55023
+[1ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq2048, x0), s 512), SortedSpariousBuffer(2048 -> (2048+512=2560))
+[1ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq2048, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq2048, x0), w 3584) to 127.0.0.1:55023
+[1ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq3072, x0), s 512) to 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq2560, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq2560, x0), s 512) from 127.0.0.1:55023
+[1ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq3584, x0), s 512) to 127.0.0.1:55790
+[1ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq2560, x0), s 512), SortedSpariousBuffer(2048 -> (2048+512=2560) -> (2560+512=3072))
+[1ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq2560, x0), w 3072) to 127.0.0.1:55023
+[1ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq4096, x0), s 512) to 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq3072, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq3584, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq3072, x0), s 512) from 127.0.0.1:55023
+[1ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq3072, x0), s 512), SortedSpariousBuffer(2048 -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584))
+[1ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq2048, x0), w 3584) from 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq3072, x0), w 2560) to 127.0.0.1:55023
+[1ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s1, seq4608, x0), s 32) to 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq3584, x0), s 512) from 127.0.0.1:55023
+[1ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq3584, x0), s 512), SortedSpariousBuffer(2048 -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[1ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq3584, x0), w 2048) to 127.0.0.1:55023
+[1ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq2048, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(2048 -> (2048+512=2560) -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[1ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq4096, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::sparious_buffer TRACE] First buffer is 2048 + 512 - 2048
+[1ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq4096, x0), s 512) from 127.0.0.1:55023
+[1ms stridul::sparious_buffer TRACE] Taking 2048 + 0..512
+[1ms stridul::socket TRACE] [127.0.0.1:55023] In flight: InFlightPacket(Data((s1, seq4608, x0), s 32), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(2560 -> (2560+512=3072) -> (3072+512=3584) -> (3584+512=4096))
+[1ms stridul::sparious_buffer TRACE] First buffer is 2560 + 512 - 2560
+[1ms stridul::sparious_buffer TRACE] Taking 2560 + 0..512
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(3072 -> (3072+512=3584) -> (3584+512=4096))
+[1ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq2560, x0), w 3072) from 127.0.0.1:55790
+[1ms stridul::sparious_buffer TRACE] First buffer is 3072 + 512 - 3072
+[1ms stridul::sparious_buffer TRACE] Taking 3072 + 0..512
+[1ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq2560, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(3584 -> (3584+512=4096))
+[1ms stridul::sparious_buffer TRACE] First buffer is 3584 + 512 - 3584
+[1ms stridul::sparious_buffer TRACE] Taking 3584 + 0..512
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(4096)
+[1ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq3072, x0), w 2560) from 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq3072, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq3584, x0), w 2048) from 127.0.0.1:55790
+[1ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq4096, x0), s 512), SortedSpariousBuffer(4096 -> (4096+512=4608))
+[1ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq3584, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq4096, x0), w 3584) to 127.0.0.1:55023
+[1ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq4096, x0), w 3584) from 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s1, seq4608, x0), s 32) from 127.0.0.1:55023
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(4096 -> (4096+512=4608))
+[1ms stridul::sparious_buffer TRACE] First buffer is 4096 + 512 - 4096
+[1ms stridul::sparious_buffer TRACE] Taking 4096 + 0..512
+[1ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq4096, x0), s 512), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(4608)
+[1ms stridul::stream TRACE] [127.0.0.1:55790][1] Recevied Data((s1, seq4608, x0), s 32), SortedSpariousBuffer(4608 -> (4608+32=4640))
+[1ms stridul::socket TRACE] [127.0.0.1:55790] > Ack((s1, seq4608, x0), w 4064) to 127.0.0.1:55023
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(4608 -> (4608+32=4640))
+[1ms stridul::sparious_buffer TRACE] First buffer is 4608 + 32 - 4608
+[1ms stridul::sparious_buffer TRACE] Taking 4608 + 0..32
+[1ms stridul::sparious_buffer TRACE] Buffer next - SortedSpariousBuffer(4640)
+[1ms stridul::socket TRACE] [127.0.0.1:55023] < Ack((s1, seq4608, x0), w 4064) from 127.0.0.1:55790
+[1ms stridul::socket TRACE] [127.0.0.1:55023] Dropping InFlightPacket(Data((s1, seq4608, x0), s 32), sender 127.0.0.1:55790, sent 0ms, rto 100ms)
+[101ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq0, x1), s 512) to 127.0.0.1:55790
+[101ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq0, x1), s 512) from 127.0.0.1:55023
+[101ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq0, x1), s 512), SortedSpariousBuffer(4096)
+[101ms stridul::stream TRACE] Dropping FullOverlap packet
+[301ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq0, x2), s 512) to 127.0.0.1:55790
+[301ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq0, x2), s 512) from 127.0.0.1:55023
+[301ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq0, x2), s 512), SortedSpariousBuffer(4096)
+[301ms stridul::stream TRACE] Dropping FullOverlap packet
+[901ms stridul::socket TRACE] [127.0.0.1:55023] > Data((s0, seq0, x3), s 512) to 127.0.0.1:55790
+[901ms stridul::socket TRACE] [127.0.0.1:55790] < Data((s0, seq0, x3), s 512) from 127.0.0.1:55023
+[901ms stridul::stream TRACE] [127.0.0.1:55790][0] Recevied Data((s0, seq0, x3), s 512), SortedSpariousBuffer(4096)
+[901ms stridul::stream TRACE] Dropping FullOverlap packet
+thread 'tokio-runtime-worker' panicked at 'called `Result::unwrap()` on an `Err` value: Elapsed(())', stridul/tests/udp_simple.rs:113:25
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Error: task 22 panicked
+
+   Canceling due to test failure: 0 tests still running
+------------
+     Summary [   2.012s] 10 tests run: 9 passed, 1 failed, 0 skipped
+        FAIL [   2.010s] stridul::udp_simple udp_ab_ab_ab_multithreaded
+error: test run failed
+

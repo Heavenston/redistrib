@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::{sync::OnceLock, time::Instant};
 use std::io::Write;
 
-use bytes::BytesMut;
+use bytes::{BytesMut, BufMut};
 use env_logger::WriteStyle;
 use env_logger::fmt::Color;
 use stridul::*;
@@ -26,7 +26,7 @@ impl<const BUFFER_SIZE: usize> StridulStrategy for MyStridulUDPStrategy<BUFFER_S
     const BUFFER_MAX_SIZE: usize = BUFFER_SIZE;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct RunSending {
     from: usize,
     to: usize,
@@ -75,49 +75,78 @@ async fn run<Strat: StridulStrategy<Socket = UdpSocket, PeersAddr = SocketAddr>>
         })
         .try_init();
 
-    let mut sockets = Vec::new();
-    for i in 0..run.sockets_count {
-        let (socket, socket_driver) = StridulSocket::<MyStridulUDPStrategy>::new(
-            UdpSocket::bind("127.0.0.1:0").await?
-        );
-        log::info!("Socket {i} has addr {}", socket.local_addr()?);
-        socket_driver.self_driving();
-        sockets.push(socket);
-    }
-    let sockets = sockets;
+    let mut i = 0;
 
-    let mut rng = SmallRng::seed_from_u64(2849032480);
-    for (ssi, ss) in run.sends.into_iter().enumerate() {
-        log::info!("Running sequence {ssi}");
-        let mut join_set = JoinSet::new();
-        for s in ss {
-            let from = Arc::clone(&sockets[s.from]);
-            let to = Arc::clone(&sockets[s.to]);
-
-            let from_to = from.get_or_create_stream(s.stream_id, to.local_addr()?).await;
-            let to_from = to.get_or_create_stream(s.stream_id, from.local_addr()?).await;
-
-            let sent = (0..s.size.div_ceil(32))
-                .flat_map(|_| rng.gen::<[u8; 32]>())
-                .collect::<BytesMut>();
-            log::info!("Sending {} bytes from {} to {}", sent.len(), s.from, s.to);
-
-            from_to.write(&sent).await?;
-            from_to.flush().await?;
-
-            join_set.spawn(async move {
-                let mut received = BytesMut::zeroed(sent.len());
-                timeout(
-                    Duration::from_millis(2000),
-                    to_from.reader().read_exact(&mut received),
-                ).await.unwrap()?;
-                assert_eq!(&sent[..], &received[..]);
-
-                Ok::<(), StridulError>(())
-            });
+    while option_env!("TEST_FOREVER").is_some() || i == 0 {
+        i += 1;
+        if option_env!("TEST_FOREVER").is_some() {
+            for _ in 0..20 {
+                println!("* {i}");
+            }
         }
-        while let Some(rslt) = join_set.join_next().await {
-            rslt??;
+
+        let mut drivers_joinset = JoinSet::new();
+
+        let mut sockets = Vec::new();
+        for i in 0..run.sockets_count {
+            let (socket, mut socket_driver) = StridulSocket::<MyStridulUDPStrategy>::new(
+                UdpSocket::bind("127.0.0.1:0").await?
+            );
+            log::info!("Socket {i} has addr {}", socket.local_addr()?);
+            drivers_joinset.spawn(async move {
+                loop {
+                    socket_driver.drive().await.unwrap();
+                }
+            });
+            sockets.push(socket);
+        }
+        let sockets = sockets;
+
+        let mut rng = SmallRng::seed_from_u64(2849032480);
+        for (ssi, ss) in run.sends.iter().cloned().enumerate() {
+            log::info!("Running sequence {ssi}");
+            let mut join_set = JoinSet::new();
+            for s in ss.iter().copied() {
+                let from = Arc::clone(&sockets[s.from]);
+                let to = Arc::clone(&sockets[s.to]);
+
+                let from_to = from.get_or_create_stream(s.stream_id, to.local_addr()?).await;
+                let to_from = to.get_or_create_stream(s.stream_id, from.local_addr()?).await;
+
+                let sent = (0..s.size.div_ceil(32))
+                    .flat_map(|_| rng.gen::<[u8; 32]>())
+                    .collect::<BytesMut>();
+                log::info!("Sending {} bytes from {} to {}", sent.len(), s.from, s.to);
+
+                log::info!("Writing...");
+                from_to.write(&sent).await?;
+                from_to.flush().await?;
+                log::info!("Creating read task");
+
+                join_set.spawn(async move {
+                    let mut received = BytesMut::new();
+                    while received.len() < sent.len() {
+                        let l = received.len();
+                        let read = timeout(
+                            Duration::from_millis(2000),
+                            to_from.read(&mut (&mut received).limit(
+                                sent.len().saturating_sub(l)
+                            )),
+                        ).await?;
+                        log::debug!("[{}->{} on {}] Received {read} bytes ({}/{})",
+                            s.from, s.to, s.stream_id,
+                            received.len(),
+                            sent.len()
+                        );
+                    }
+                    assert_eq!(&sent[..], &received[..]);
+
+                    Ok::<(), anyhow::Error>(())
+                });
+            }
+            while let Some(rslt) = join_set.join_next().await {
+                rslt??;
+            }
         }
     }
 
@@ -174,14 +203,14 @@ pub async fn udp_ab_small_buffer_size() -> anyhow::Result<()> {
             RunSending {
                 from: 0,
                 to: 1,
-                stream_id: 423890,
+                stream_id: 120,
                 size: 4096,
             }
         ], vec![
             RunSending {
                 from: 0,
                 to: 1,
-                stream_id: 423890,
+                stream_id: 210,
                 size: 3255,
             }
         ]],
@@ -196,14 +225,14 @@ pub async fn udp_ab_very_small_buffer_size() -> anyhow::Result<()> {
             RunSending {
                 from: 0,
                 to: 1,
-                stream_id: 423890,
+                stream_id: 59,
                 size: 4135,
             }
         ], vec![
             RunSending {
                 from: 0,
                 to: 1,
-                stream_id: 423890,
+                stream_id: 95,
                 size: 9816,
             }
         ]],

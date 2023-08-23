@@ -26,6 +26,7 @@ pub struct StridulStream<Strat: StridulStrategy> {
     /// Notified when data is available in received
     readable_notify: Notify,
 
+    last_window_size: AtomicU32,
     receiver_window_size: AtomicU32,
 
     total_sent: AtomicU32,
@@ -95,6 +96,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
             readable_notify: Notify::new(),
 
             receiver_window_size: AtomicU32::new(Strat::BASE_WINDOW_SIZE),
+            last_window_size: AtomicU32::new(Strat::BASE_WINDOW_SIZE),
 
             total_sent: AtomicU32::new(0),
             write_buffer: default(),
@@ -129,7 +131,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
             // Wake up anyone waiting for data
             self.readable_notify.notify_one();
         }
-
+        self.last_window_size.store(remaining_cap, atomic::Ordering::Relaxed);
         Ok(Some(remaining_cap))
     }
 
@@ -163,17 +165,51 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
     }
 
     pub fn try_read(&self, into: &mut impl BufMut) -> usize {
-        self.received.lock().unwrap()
+        let mut received = self.received.lock().unwrap();
+        let written = received
             .drain_contiguous(Some(into.remaining_mut()))
             .map(|x| { into.put_slice(&*x); x.len() })
-            .sum()
+            .sum();
+        let remaining: u32 =
+            received.remaining_capacity().try_into().unwrap();
+        drop(received);
+
+        // Re-advertise the new wider window size if the last one was empty
+        // Since there is no other opportunities of sending acks since no
+        // packets are now expected from the sender.
+        if written > 0 && self.last_window_size.load(atomic::Ordering::Relaxed) == 0 {
+            // Note: For if the "async" packet could not be sent the remote
+            // will still not have the new window size but in that case he
+            // is expected to send a probe-packet after some time to resolve
+            // the situation (also applies if this packet is lost)
+            let sent = self.socket.request_async_send_raw(
+                self.peer_addr.clone(),
+                AckPack {
+                    acked_id: PacketId {
+                        stream_id: self.id,
+                        sequence_number: 0,
+                        retransmission: 0,
+                    },
+                    window_size: remaining,
+                }.into()
+            );
+            if sent {
+                self.last_window_size.store(remaining, atomic::Ordering::Relaxed);
+            }
+        }
+
+        written
     }
 
     pub async fn read(&self, into: &mut impl BufMut) -> usize {
-        let r = self.try_read(into);
-        if r != 0 { return r; }
-        self.readable_notify.notified().await;
-        self.try_read(into)
+        if !into.has_remaining_mut()
+        { return 0; }
+
+        let mut r;
+        while { r = self.try_read(into); r } == 0 {
+            self.readable_notify.notified().await;
+        }
+        return r;
     }
 
     pub async fn write(
@@ -219,11 +255,10 @@ impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        // FIXPERF: Maybe try lock ?
-        let mut received = self.stream.received.lock().unwrap();
-        let there_is_data = received.contiguous_bytes_len() > 0;
+        if !buf.has_remaining_mut()
+        { return Poll::Ready(Ok(())); }
 
-        while !there_is_data {
+        while self.stream.try_read(buf) == 0 {
             match self.notify.as_mut().poll(cx) {
                 Poll::Ready(()) => (),
                 Poll::Pending => return Poll::Pending,
@@ -232,12 +267,6 @@ impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
             // with a new one, reregistering to wait for data
             self.notify = Box::pin(self.stream.readable_notify.notified());
         }
-
-        received
-            .drain_contiguous(Some(buf.remaining_mut()))
-            .for_each(|x| {
-                buf.put_slice(&x)
-            });
 
         Poll::Ready(Ok(()))
     }
