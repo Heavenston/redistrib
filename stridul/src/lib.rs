@@ -196,6 +196,7 @@ mod tests {
 
         let _ = env_logger::builder()
             .is_test(true)
+            .filter_level(log::LevelFilter::Trace)
             .format(|buf, record| {
                 let elapsed = START.get_or_init(|| Instant::now()).elapsed();
                 write!(buf,

@@ -59,7 +59,7 @@ impl SortedSpariousBuffer {
             .map(|x| x.start_idx + x.bytes.len())
             .max().unwrap_or(0)
             .saturating_sub(self.flushed_bytes);
-        if new_max_size >= self.max_size {
+        if new_max_size > self.max_size {
             return Err(BufferInsertError::WouldOverflow);
         }
 
