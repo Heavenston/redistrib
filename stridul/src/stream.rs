@@ -139,6 +139,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
 
         if is_there_data {
             // Wake up anyone waiting for data
+            // FIXPERF: Maybe batch notifies to have bigger read orders
             self.readable_notify.notify_one();
         }
         self.last_window_size.store(remaining_cap, atomic::Ordering::Relaxed);
