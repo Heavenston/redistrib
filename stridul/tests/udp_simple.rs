@@ -7,6 +7,8 @@ use std::{sync::OnceLock, time::Instant};
 use std::io::Write;
 
 use bytes::BytesMut;
+use env_logger::WriteStyle;
+use env_logger::fmt::Color;
 use stridul::*;
 use tokio::task::JoinSet;
 use tokio::{net::UdpSocket, io::AsyncReadExt, time::timeout};
@@ -44,17 +46,33 @@ async fn run<Strat: StridulStrategy<Socket = UdpSocket, PeersAddr = SocketAddr>>
     pub static START: OnceLock<Instant> = OnceLock::new();
 
     let _ = env_logger::builder()
-        .is_test(true)
+        .is_test(option_env!("NO_LOG_TEST").is_none())
+        .filter_level(log::LevelFilter::Trace)
+        .write_style(WriteStyle::Always)
         .format(|buf, record| {
+            let mut style = buf.style();
+            use log::Level::*;
+            match record.level() {
+                Error => style.set_color(Color::Red),
+                Warn => style.set_color(Color::Red).set_dimmed(true),
+                Info => style.set_color(Color::Blue),
+                Debug => style.set_color(Color::White),
+                Trace => style.set_color(Color::Black).set_intense(true),
+            };
             let elapsed = START.get_or_init(|| Instant::now()).elapsed();
+
             write!(buf,
-                "[{}ms {} {}] {}\n",
-                elapsed.as_millis(),
-                record.module_path().unwrap_or(""),
-                record.level(), record.args()
+                "{}{}{} {}\n",
+                style.value(format!("[{}ms {} ",
+                    elapsed.as_millis(),
+                    record.module_path().unwrap_or(""),
+                )),
+                style.clone().set_bold(true).value(record.level()),
+                style.value("]"),
+
+                record.args()
             )
         })
-        .filter_level(log::LevelFilter::Trace)
         .try_init();
 
     let mut sockets = Vec::new();
@@ -69,7 +87,8 @@ async fn run<Strat: StridulStrategy<Socket = UdpSocket, PeersAddr = SocketAddr>>
     let sockets = sockets;
 
     let mut rng = SmallRng::seed_from_u64(2849032480);
-    for ss in run.sends {
+    for (ssi, ss) in run.sends.into_iter().enumerate() {
+        log::info!("Running sequence {ssi}");
         let mut join_set = JoinSet::new();
         for s in ss {
             let from = Arc::clone(&sockets[s.from]);
@@ -81,6 +100,7 @@ async fn run<Strat: StridulStrategy<Socket = UdpSocket, PeersAddr = SocketAddr>>
             let sent = (0..s.size.div_ceil(32))
                 .flat_map(|_| rng.gen::<[u8; 32]>())
                 .collect::<BytesMut>();
+            log::info!("Sending {} bytes from {} to {}", sent.len(), s.from, s.to);
 
             from_to.write(&sent).await?;
             from_to.flush().await?;
@@ -142,6 +162,50 @@ pub async fn udp_ab_ba_multithreaded() -> anyhow::Result<()> {
                 stream_id: 423890,
                 size: 4096,
             },
+        ]],
+    }).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+pub async fn udp_ab_small_buffer_size() -> anyhow::Result<()> {
+    run::<MyStridulUDPStrategy<1024>>(Run {
+        sockets_count: 2,
+        sends: vec![vec![
+            RunSending {
+                from: 0,
+                to: 1,
+                stream_id: 423890,
+                size: 4096,
+            }
+        ], vec![
+            RunSending {
+                from: 0,
+                to: 1,
+                stream_id: 423890,
+                size: 3255,
+            }
+        ]],
+    }).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+pub async fn udp_ab_very_small_buffer_size() -> anyhow::Result<()> {
+    run::<MyStridulUDPStrategy<512>>(Run {
+        sockets_count: 2,
+        sends: vec![vec![
+            RunSending {
+                from: 0,
+                to: 1,
+                stream_id: 423890,
+                size: 4135,
+            }
+        ], vec![
+            RunSending {
+                from: 0,
+                to: 1,
+                stream_id: 423890,
+                size: 9816,
+            }
         ]],
     }).await
 }
