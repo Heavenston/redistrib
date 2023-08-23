@@ -37,7 +37,7 @@ pub enum StridulError {
 }
 
 #[async_trait::async_trait]
-pub trait StridulStartSocket<Strat: StridulStrategy>: Send + Sync + 'static {
+pub trait StridulStratSocket<Strat: StridulStrategy>: Send + Sync + 'static {
     fn local_addr(&self) -> Result<Strat::PeersAddr, StridulError>;
 
     async fn send_to(
@@ -50,7 +50,7 @@ pub trait StridulStartSocket<Strat: StridulStrategy>: Send + Sync + 'static {
 }
 
 #[async_trait::async_trait]
-impl<Strat> StridulStartSocket<Strat> for UdpSocket
+impl<Strat> StridulStratSocket<Strat> for UdpSocket
     where Strat: StridulStrategy<PeersAddr = SocketAddr>
 {
     fn local_addr(&self) -> Result<SocketAddr, StridulError> {
@@ -71,7 +71,7 @@ impl<Strat> StridulStartSocket<Strat> for UdpSocket
 }
 
 pub trait StridulStrategy: Debug + Sized + 'static {
-    type Socket: StridulStartSocket<Self>;
+    type Socket: StridulStratSocket<Self>;
     type PeersAddr: Debug + Clone + PartialEq + Eq + Hash + Send + Sync + 'static;
 
     const BASE_WINDOW_SIZE: u32;
@@ -150,7 +150,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl StridulStartSocket<LocalStrategy> for Arc<LocalSocket> {
+    impl StridulStratSocket<LocalStrategy> for Arc<LocalSocket> {
         fn local_addr(&self) -> Result<u32, StridulError> {
             Ok(self.addr)
         }
