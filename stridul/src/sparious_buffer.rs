@@ -116,6 +116,10 @@ impl SortedSpariousBuffer {
             .sum()
     }
 
+    pub fn remaining_capacity(&self) -> usize {
+        self.max_size.saturating_sub(self.actual_len())
+    }
+
     pub fn drain_contiguous(
         &mut self, max_bytes: Option<usize>,
     ) -> ContiguousFlushIterator<'_> {
