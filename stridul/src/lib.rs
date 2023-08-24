@@ -76,9 +76,10 @@ pub trait StridulStrategy: Debug + Sized + 'static {
 
     const BASE_WINDOW_SIZE: u32;
     const BASE_RTO: Duration;
-    const STREAM_0_RESOLVE_TIMEOUT: Duration = Duration::from_millis(500);
     const PACKET_MAX_SIZE: u32;
     const BUFFER_MAX_SIZE: usize;
+    const STREAM_0_RESOLVE_TIMEOUT: Duration = Duration::from_millis(500);
+    const PACKET_TIMEOUT: Duration = Duration::from_millis(2000);
 
     fn serialize(packet: &impl serde::Serialize, into: &mut impl BufMut)
         -> Result<(), StridulError> {

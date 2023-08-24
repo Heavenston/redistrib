@@ -11,7 +11,7 @@ use env_logger::WriteStyle;
 use env_logger::fmt::Color;
 use stridul::*;
 use tokio::task::JoinSet;
-use tokio::{net::UdpSocket, io::AsyncReadExt, time::timeout};
+use tokio::{net::UdpSocket, time::timeout};
 use rand::prelude::*;
 
 #[derive(Debug, Clone, Copy)]

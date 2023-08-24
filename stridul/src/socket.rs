@@ -283,6 +283,16 @@ pub struct StridulSocketDriver<Strat: StridulStrategy> {
 }
 
 impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
+    /// Spawns a tokio task that runs Self::drives infifenitely returning
+    /// its joinhandle
+    pub fn self_driving(mut self) -> tokio::task::JoinHandle<Result<(), StridulError>> {
+        tokio::spawn(async move {
+            loop {
+                self.drive().await?;
+            }
+        })
+    }
+
     /// Drives the socket until a new stream is received
     ///
     /// Must be called in a loop as no packet can be received while this is
@@ -294,6 +304,8 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
         let mut buffer = BytesMut::zeroed(BUFFER_SIZE + 8);
 
         loop {
+            self.remove_timedout_packets();
+
             // FIXPERF: Make the search better by using the sorted property ?
             //          I think of just early exit when next packets are send
             //          after the current delay
@@ -421,12 +433,20 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
         }
     }
 
-    pub fn self_driving(mut self) -> tokio::task::JoinHandle<Result<(), StridulError>> {
-        tokio::spawn(async move {
-            loop {
-                self.drive().await?;
+    fn remove_timedout_packets(&mut self) {
+        let mut i = 0;
+        while i < self.packets_in_flight.len() {
+            if self.packets_in_flight[i].sent_at.elapsed() > Strat::PACKET_TIMEOUT {
+                log::trace!("[{:?}] Timedout {}",
+                    self.socket.local_addr(),
+                    self.packets_in_flight[i]
+                );
+                self.packets_in_flight.remove(i);
             }
-        })
+            else {
+                i += 1;
+            }
+        }
     }
 
     async fn packet(
