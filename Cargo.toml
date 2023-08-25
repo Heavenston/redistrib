@@ -8,7 +8,7 @@ overflow-checks=true
 debug=true
 
 [workspace]
-resolver = "1"
+resolver = "2"
 members = [
-  "stridul"
+  "stridul",
 ]

@@ -283,16 +283,6 @@ pub struct StridulSocketDriver<Strat: StridulStrategy> {
 }
 
 impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
-    /// Spawns a tokio task that runs Self::drives infifenitely returning
-    /// its joinhandle
-    pub fn self_driving(mut self) -> tokio::task::JoinHandle<Result<(), StridulError>> {
-        tokio::spawn(async move {
-            loop {
-                self.drive().await?;
-            }
-        })
-    }
-
     /// Drives the socket until a new stream is received
     ///
     /// Must be called in a loop as no packet can be received while this is

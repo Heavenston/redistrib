@@ -5,7 +5,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
-mod one_writer_rwlock;
 mod socket;
 use bytes::BufMut;
 pub use socket::*;
