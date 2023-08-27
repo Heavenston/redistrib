@@ -1,4 +1,5 @@
 #![feature(int_roundings)]
+#![feature(maybe_uninit_slice)]
 #![feature(core_intrinsics)]
 #![feature(io_error_other)]
 
@@ -6,15 +7,21 @@
 #![allow(dead_code)]
 
 mod socket;
-use bytes::BufMut;
+pub mod packet;
+pub(crate) use packet::*;
+
+pub mod read_ext;
+pub(crate) use read_ext::*;
+
 pub use socket::*;
 mod stream;
 pub use stream::*;
 mod sparious_buffer;
 pub(crate) use sparious_buffer::*;
 
-use std::{net::SocketAddr, time::Duration, sync::Arc, hash::Hash, fmt::Debug};
+use std::{net::SocketAddr, time::Duration, sync::Arc, hash::Hash, fmt::Debug, io::{Write, Read}};
 
+use bytes::BufMut;
 use tokio::net::{UdpSocket, ToSocketAddrs};
 use thiserror::Error;
 
@@ -29,8 +36,11 @@ pub(crate) fn default<T: Default>() -> T {
 pub enum StridulError {
     #[error(transparent)]
     OtherIoError(#[from] tokio::io::Error),
-    #[error(transparent)]
-    BincodeError(#[from] bincode::Error),
+    #[error("Unexpected value {message}")]
+    UnexpectedValueError {
+        message: String,
+    },
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -80,13 +90,15 @@ pub trait StridulStrategy: Debug + Sized + 'static {
     const STREAM_0_RESOLVE_TIMEOUT: Duration = Duration::from_millis(500);
     const PACKET_TIMEOUT: Duration = Duration::from_millis(2000);
 
-    fn serialize(packet: &impl serde::Serialize, into: &mut impl BufMut)
-        -> Result<(), StridulError> {
-        Ok(bincode::serialize_into(into.writer(), packet)?)
+    fn serialize(
+        packet: &packet::StridulPacket, into: impl Write
+    ) -> Result<(), StridulError> {
+        packet.serialize(into)
     }
-    fn deserialize<D>(bytes: &[u8]) -> Result<D, StridulError>
-        where D: for<'a> serde::Deserialize<'a> {
-        Ok(bincode::deserialize_from(bytes)?)
+    fn deserialize(
+        from: impl Read
+    ) -> Result<StridulPacket, StridulError> {
+        StridulPacket::deserialize(from)
     }
 }
 

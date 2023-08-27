@@ -6,124 +6,11 @@ use std::{
 };
 
 use static_assertions as ca;
-use bincode::Options;
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use tokio::{net::{UdpSocket, ToSocketAddrs}, stream, time as ttime, sync::{mpsc, oneshot}};
 use thiserror::Error;
 use futures::future::Either as fEither;
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct PacketId {
-    pub stream_id: StreamID,
-    pub sequence_number: u32,
-    pub retransmission: u8,
-}
-
-impl PacketId {
-    pub fn with_rt(self, rt: u8) -> Self {
-        Self {
-            retransmission: rt,
-            ..self
-        }
-    }
-}
-
-impl std::fmt::Display for PacketId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(s{}, seq{}, x{})", self.stream_id, self.sequence_number, self.retransmission)
-    }
-}
-
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-pub(crate) struct AckPack {
-    pub acked_id: PacketId,
-    pub window_size: u32,
-}
-
-impl std::fmt::Display for AckPack {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Ack({}, w {})", self.acked_id, self.window_size)
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct DataPack {
-    pub id: PacketId,
-    pub data: Bytes,
-}
-
-impl std::fmt::Display for DataPack {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Data({}, s {})", self.id, self.data.len())
-    }
-}
-
-// FIXPERF: Use rkyv ?
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) enum StridulPacket {
-    Ack(AckPack),
-    Data(DataPack),
-}
-
-impl StridulPacket {
-    pub fn id(&self) -> PacketId {
-        use StridulPacket::*;
-        match self {
-            Ack(AckPack { acked_id: id, .. }) |
-            Data(DataPack { id, .. }) => *id,
-        }
-    }
-
-    pub fn id_mut(&mut self) -> &mut PacketId {
-        use StridulPacket::*;
-        match self {
-            Ack(AckPack { acked_id: id, .. }) |
-            Data(DataPack { id, .. }) => id,
-        }
-    }
-
-    pub fn has_data(&self) -> bool {
-        match self {
-            StridulPacket::Data { .. } => true,
-            _ => false,
-        }
-    }
-
-    pub fn data(&self) -> Option<&Bytes> {
-        use StridulPacket::*;
-        match self {
-            Ack(..)
-                => None,
-            Data(DataPack { data, .. })
-                => Some(data),
-        }
-    }
-
-    pub fn data_len(&self) -> usize {
-        self.data().map(|b| b.len()).unwrap_or(0)
-    }
-}
-
-impl std::fmt::Display for StridulPacket {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StridulPacket::Ack(pack) => write!(f, "{pack}"),
-            StridulPacket::Data(pack) => write!(f, "{pack}")
-        }
-    }
-}
-
-impl From<AckPack> for StridulPacket {
-    fn from(value: AckPack) -> Self {
-        Self::Ack(value)
-    }
-}
-impl From<DataPack> for StridulPacket {
-    fn from(value: DataPack) -> Self {
-        Self::Data(value)
-    }
-}
 
 type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
 
@@ -226,7 +113,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
 
         // FIXPERF: Memory pool to not alocation each time
         let mut data = BytesMut::new();
-        Strat::serialize(packet, &mut data)?;
+        Strat::serialize(packet, &mut (&mut data).writer())?;
         let sent = self.socket.send_to(&data, dest).await?;
         assert_eq!(sent, data.len());
         Ok(())
