@@ -78,7 +78,7 @@ impl AckPack {
 
 impl std::fmt::Display for AckPack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Ack({}, w {})", self.acked_id, self.window_size)
+        write!(f, "Ack({}, win{})", self.acked_id, self.window_size)
     }
 }
 
@@ -112,7 +112,37 @@ impl DataPack {
 
 impl std::fmt::Display for DataPack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Data({}, s {})", self.id, self.data.len())
+        write!(f, "Data({}, len{})", self.id, self.data.len())
+    }
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct MessagePack {
+    pub data: Bytes,
+}
+
+impl MessagePack {
+    pub fn serialize(
+        &self, mut into: impl Write
+    ) -> Result<(), StridulError> {
+        into.write_all(&self.data)?;
+        Ok(())
+    }
+
+    pub fn deserialize(mut from: impl Read) -> Result<Self, StridulError> {
+        // FIXPERF: Allocation and copies >:(
+        let mut data = Vec::new();
+        from.read_to_end(&mut data)?;
+        Ok(Self {
+            data: Bytes::from(data),
+        })
+    }
+}
+
+impl std::fmt::Display for MessagePack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Message(len{})", self.data.len())
     }
 }
 
@@ -121,6 +151,7 @@ impl std::fmt::Display for DataPack {
 pub enum StridulPacket {
     Ack(AckPack),
     Data(DataPack),
+    Message(MessagePack),
 }
 
 impl StridulPacket {
@@ -136,6 +167,10 @@ impl StridulPacket {
                 into.write_u16(1)?;
                 data.serialize(&mut into)?;
             },
+            StridulPacket::Message(mess) => {
+                into.write_u16(2)?;
+                mess.serialize(&mut into)?;
+            },
         }
         Ok(())
     }
@@ -145,32 +180,26 @@ impl StridulPacket {
         match from.read_u16()? & 0xFF {
             0 => Ok(Self::Ack(AckPack::deserialize(&mut from)?)),
             1 => Ok(Self::Data(DataPack::deserialize(&mut from)?)),
+            3 => Ok(Self::Message(MessagePack::deserialize(&mut from)?)),
             id => Err(StridulError::UnexpectedValueError {
                 message: format!("Supported packet types are 0 and 1, got {id}"),
             })
         }
     }
 
-    pub fn id(&self) -> PacketId {
-        use StridulPacket::*;
+    pub fn id(&self) -> Option<PacketId> {
         match self {
-            Ack(AckPack { acked_id: id, .. }) |
-            Data(DataPack { id, .. }) => *id,
-        }
-    }
-
-    pub fn id_mut(&mut self) -> &mut PacketId {
-        use StridulPacket::*;
-        match self {
-            Ack(AckPack { acked_id: id, .. }) |
-            Data(DataPack { id, .. }) => id,
+            StridulPacket::Ack(ack) => Some(ack.acked_id),
+            StridulPacket::Data(data) => Some(data.id),
+            StridulPacket::Message(_) => None,
         }
     }
 
     pub fn has_data(&self) -> bool {
         match self {
-            StridulPacket::Data { .. } => true,
-            _ => false,
+            StridulPacket::Data(..) => true,
+            StridulPacket::Message(..) => true,
+            StridulPacket::Ack(..) => false,
         }
     }
 
@@ -179,7 +208,8 @@ impl StridulPacket {
         match self {
             Ack(..)
                 => None,
-            Data(DataPack { data, .. })
+            Data(DataPack { data, .. }) |
+            Message(MessagePack { data, .. })
                 => Some(data),
         }
     }
@@ -193,7 +223,8 @@ impl std::fmt::Display for StridulPacket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StridulPacket::Ack(pack) => write!(f, "{pack}"),
-            StridulPacket::Data(pack) => write!(f, "{pack}")
+            StridulPacket::Data(pack) => write!(f, "{pack}"),
+            StridulPacket::Message(pack) => write!(f, "{pack}"),
         }
     }
 }
@@ -203,9 +234,16 @@ impl From<AckPack> for StridulPacket {
         Self::Ack(value)
     }
 }
+
 impl From<DataPack> for StridulPacket {
     fn from(value: DataPack) -> Self {
         Self::Data(value)
+    }
+}
+
+impl From<MessagePack> for StridulPacket {
+    fn from(value: MessagePack) -> Self {
+        Self::Message(value)
     }
 }
 

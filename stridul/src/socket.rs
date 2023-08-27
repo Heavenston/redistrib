@@ -103,28 +103,36 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
         }
     }
 
+    /// Sends an unreliable message to peer_addr
+    pub async fn send_message(
+        self: &Arc<Self>, peer_addr: Strat::PeersAddr, data: Bytes,
+    ) -> Result<(), StridulError> {
+        self.send_raw(&peer_addr, &MessagePack { data }.into()).await
+    }
+
     pub(crate) async fn send_raw(
         &self, dest: &Strat::PeersAddr, packet: &StridulPacket
     ) -> Result<(), StridulError> {
-        ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
-        assert!((packet.data_len() as u128) <= (Strat::PACKET_MAX_SIZE as u128));
+        if packet.data_len() as u128 > Strat::PACKET_MAX_SIZE as u128 {
+            return Err(StridulError::PacketTooBig {
+                size: packet.data_len(),
+                maximum: Strat::PACKET_MAX_SIZE as usize
+            });
+        }
 
         log::trace!("[{:?}] > {} to {:?}", self.socket.local_addr()?, packet, dest);
 
         // FIXPERF: Memory pool to not alocation each time
         let mut data = BytesMut::new();
-        Strat::serialize(packet, &mut (&mut data).writer())?;
+        Strat::serialize(packet, (&mut data).writer())?;
         let sent = self.socket.send_to(&data, dest).await?;
-        assert_eq!(sent, data.len());
+        debug_assert_eq!(sent, data.len());
         Ok(())
     }
 
     pub(crate) async fn send_raw_reliable(
         &self, dest: Strat::PeersAddr, packet: DataPack,
     ) -> Result<oneshot::Receiver<()>, StridulError> {
-        ca::const_assert!(size_of::<u128>() >= size_of::<usize>());
-        assert!((packet.data.len() as u128) <= (Strat::PACKET_MAX_SIZE as u128));
-
         self.send_raw(&dest, &packet.clone().into()).await?;
 
         let (ack_send, ack_recv) = oneshot::channel();
@@ -148,6 +156,46 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
             self.socket.local_addr().unwrap(), packet, dest
         );
         self.async_packet_send_request_send.try_send((dest, packet)).is_ok()
+    }
+}
+
+pub enum StridulDriveEvent<Strat: StridulStrategy> {
+    NewStream {
+        stream: Arc<StridulStream<Strat>>,
+    },
+    Message {
+        data: Bytes,
+        from: Strat::PeersAddr,
+    },
+}
+
+impl<Strat: StridulStrategy> StridulDriveEvent<Strat> {
+    pub fn into_new_stream(self) -> Option<Arc<StridulStream<Strat>>> {
+        match self {
+            Self::NewStream { stream } => Some(stream),
+            _ => None,
+        }
+    }
+
+    pub fn new_stream(&self) -> Option<&Arc<StridulStream<Strat>>> {
+        match self {
+            Self::NewStream { stream } => Some(stream),
+            _ => None,
+        }
+    }
+
+    pub fn into_message(self) -> Option<(Bytes, Strat::PeersAddr)> {
+        match self {
+            Self::Message { data, from } => Some((data, from)),
+            _ => None,
+        }
+    }
+
+    pub fn message(&self) -> Option<(&Bytes, &Strat::PeersAddr)> {
+        match self {
+            Self::Message { data, from } => Some((data, from)),
+            _ => None,
+        }
     }
 }
 
@@ -176,7 +224,7 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
     /// not running
     pub async fn drive(
         &mut self
-    ) -> Result<Arc<StridulStream<Strat>>, StridulError> {
+    ) -> Result<StridulDriveEvent<Strat>, StridulError> {
         const BUFFER_SIZE: usize = 1024;
         let mut buffer = BytesMut::zeroed(BUFFER_SIZE + 8);
 
@@ -328,7 +376,7 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
 
     async fn packet(
         &mut self, addr: Strat::PeersAddr, packet: StridulPacket,
-    ) -> Result<ControlFlow<Arc<StridulStream<Strat>>>, StridulError> {
+    ) -> Result<ControlFlow<StridulDriveEvent<Strat>>, StridulError> {
         log::trace!("[{:?}] < {} from {:?}", self.socket.local_addr()?, packet, addr);
         match packet {
             StridulPacket::Ack(pack) => {
@@ -401,7 +449,15 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                     return Ok(ControlFlow::Continue(()));
                 }
 
-                return Ok(ControlFlow::Break(stream));               
+                return Ok(ControlFlow::Break(StridulDriveEvent::NewStream {
+                    stream
+                }));
+            },
+            StridulPacket::Message(MessagePack { data }) => {
+                return Ok(ControlFlow::Break(StridulDriveEvent::Message {
+                    data,
+                    from: addr,
+                }));
             },
         }
 

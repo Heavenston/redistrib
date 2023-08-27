@@ -40,6 +40,11 @@ pub enum StridulError {
     UnexpectedValueError {
         message: String,
     },
+    #[error("Tried to send a packet of size {size} but maximum is {maximum}")]
+    PacketTooBig {
+        size: usize,
+        maximum: usize,
+    },
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -255,7 +260,7 @@ mod tests {
         let b2a = tokio::time::timeout(
             Duration::from_millis(1000),
             socket_b_driver.drive(),
-        ).await.unwrap()?;
+        ).await.unwrap()?.into_new_stream().expect("Expected a new stream");
         assert_eq!(b2a.id(), a2b.id());
         assert_eq!(*b2a.peer_addr(), socket_a.local_addr()?);
 
