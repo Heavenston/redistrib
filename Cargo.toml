@@ -11,4 +11,5 @@ debug=true
 resolver = "2"
 members = [
   "stridul",
+  "cobweb",
 ]
