@@ -9,14 +9,13 @@ use std::io::Write;
 use bytes::{BytesMut, BufMut};
 use env_logger::WriteStyle;
 use env_logger::fmt::Color;
-use stridul::*;
 use tokio::task::JoinSet;
 use tokio::{net::UdpSocket, time::timeout};
 use rand::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
-pub struct MyStridulUDPStrategy<const BUFFER_SIZE: usize = 4096>;
-impl<const BUFFER_SIZE: usize> Strategy for MyStridulUDPStrategy<BUFFER_SIZE> {
+pub struct MyUDPStrategy<const BUFFER_SIZE: usize = 4096>;
+impl<const BUFFER_SIZE: usize> stridul::Strategy for MyUDPStrategy<BUFFER_SIZE> {
     type Socket = UdpSocket;
     type PeersAddr = SocketAddr;
 
@@ -40,7 +39,7 @@ struct Run {
     sends: Vec<Vec<RunSending>>,
 }
 
-async fn run<Strat: Strategy<Socket = UdpSocket, PeersAddr = SocketAddr>>(
+async fn run<Strat: stridul::Strategy<Socket = UdpSocket, PeersAddr = SocketAddr>>(
     run: Run
 ) -> Result<(), anyhow::Error> {
     pub static START: OnceLock<Instant> = OnceLock::new();
@@ -89,7 +88,7 @@ async fn run<Strat: Strategy<Socket = UdpSocket, PeersAddr = SocketAddr>>(
 
         let mut sockets = Vec::new();
         for i in 0..run.sockets_count {
-            let (socket, mut socket_driver) = Socket::<MyStridulUDPStrategy>::new(
+            let (socket, mut socket_driver) = stridul::Socket::<Strat>::new(
                 UdpSocket::bind("127.0.0.1:0").await?
             );
             log::info!("Socket {i} has addr {}", socket.local_addr()?);
@@ -155,7 +154,7 @@ async fn run<Strat: Strategy<Socket = UdpSocket, PeersAddr = SocketAddr>>(
 
 #[tokio::test]
 pub async fn udp_ab_ba_singlethreaded() -> anyhow::Result<()> {
-    run::<MyStridulUDPStrategy>(Run {
+    run::<MyUDPStrategy>(Run {
         sockets_count: 2,
         sends: vec![vec![
             RunSending {
@@ -176,7 +175,7 @@ pub async fn udp_ab_ba_singlethreaded() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 pub async fn udp_ab_ba_multithreaded() -> anyhow::Result<()> {
-    run::<MyStridulUDPStrategy>(Run {
+    run::<MyUDPStrategy>(Run {
         sockets_count: 2,
         sends: vec![vec![
             RunSending {
@@ -197,7 +196,7 @@ pub async fn udp_ab_ba_multithreaded() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 pub async fn udp_ab_small_buffer_size() -> anyhow::Result<()> {
-    run::<MyStridulUDPStrategy<1024>>(Run {
+    run::<MyUDPStrategy<1024>>(Run {
         sockets_count: 2,
         sends: vec![vec![
             RunSending {
@@ -219,7 +218,7 @@ pub async fn udp_ab_small_buffer_size() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 pub async fn udp_ab_very_small_buffer_size() -> anyhow::Result<()> {
-    run::<MyStridulUDPStrategy<512>>(Run {
+    run::<MyUDPStrategy<512>>(Run {
         sockets_count: 2,
         sends: vec![vec![
             RunSending {
@@ -241,7 +240,7 @@ pub async fn udp_ab_very_small_buffer_size() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 pub async fn udp_multistream_multithreaded() -> anyhow::Result<()> {
-    run::<MyStridulUDPStrategy>(Run {
+    run::<MyUDPStrategy>(Run {
         sockets_count: 2,
         sends: vec![vec![
             RunSending {
@@ -274,7 +273,7 @@ pub async fn udp_multistream_multithreaded() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 pub async fn udp_ab_ac_multithreaded() -> anyhow::Result<()> {
-    run::<MyStridulUDPStrategy>(Run {
+    run::<MyUDPStrategy>(Run {
         sockets_count: 3,
         sends: vec![vec![
             RunSending {
@@ -301,7 +300,7 @@ pub async fn udp_ab_ac_multithreaded() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 pub async fn udp_ab_ab_ab_multithreaded() -> anyhow::Result<()> {
-    run::<MyStridulUDPStrategy>(Run {
+    run::<MyUDPStrategy>(Run {
         sockets_count: 3,
         sends: vec![vec![
             RunSending {
