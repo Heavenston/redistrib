@@ -17,10 +17,10 @@ struct FlyingBufferInfo {
     pub size: u32,
 }
 
-pub struct StridulStream<Strat: StridulStrategy> {
+pub struct Stream<Strat: Strategy> {
     id: StreamID,
     peer_addr: Strat::PeersAddr,
-    socket: Arc<StridulSocket<Strat>>,
+    socket: Arc<Socket<Strat>>,
 
     received: Mutex<SortedSpariousBuffer>,
     /// Notified when data is available in received
@@ -35,9 +35,9 @@ pub struct StridulStream<Strat: StridulStrategy> {
     in_flights: AMutex<Vec<FlyingBufferInfo>>,
 }
 
-impl<Strat: StridulStrategy> StridulStream<Strat> {
+impl<Strat: Strategy> Stream<Strat> {
     /// Send as much bytes as the receiver window allows
-    async fn flush_write_buffer(&self) -> Result<(), StridulError> {
+    async fn flush_write_buffer(&self) -> Result<(), Error> {
         let mut in_flights = self.in_flights.lock().await;
         let mut write_buffer = self.write_buffer.lock().await;
 
@@ -82,7 +82,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
     pub(crate) fn new(
         id: StreamID,
         peer_addr: Strat::PeersAddr,
-        socket: Arc<StridulSocket<Strat>>,
+        socket: Arc<Socket<Strat>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             id,
@@ -109,7 +109,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
     pub(crate) async fn handle_data_pack(
         &self,
         pack: DataPack,
-    ) -> Result<Option<u32>, StridulError> {
+    ) -> Result<Option<u32>, Error> {
         let mut received = self.received.lock().unwrap();
 
         let slt = received.insert(BuffEl {
@@ -148,7 +148,7 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
 
     pub(crate) async fn handle_ack_pack(
         &self, pack: AckPack,
-    ) -> Result<(), StridulError> {
+    ) -> Result<(), Error> {
         // FIXME: When a window of 0 is sent, other acks that increase it
         //        may be lost, so after some time an empty packet should
         //        be sent.
@@ -225,32 +225,32 @@ impl<Strat: StridulStrategy> StridulStream<Strat> {
 
     pub async fn write(
         &self, bytes: impl AsRef<[u8]>
-    ) -> Result<(), StridulError> {
+    ) -> Result<(), Error> {
         self.write_buffer.lock().await.put_slice(bytes.as_ref());
         Ok(())
     }
 
-    pub async fn flush(&self) -> Result<(), StridulError> {
+    pub async fn flush(&self) -> Result<(), Error> {
         self.flush_write_buffer().await
     }
 
-    pub fn reader<'a>(&'a self) -> StridulStreamReader<'a, Strat> {
-        StridulStreamReader::new(self)
+    pub fn reader<'a>(&'a self) -> StreamReader<'a, Strat> {
+        StreamReader::new(self)
     }
 
-    pub fn writer<'a>(&'a self) -> StridulStreamWriter<'a, Strat> {
-        StridulStreamWriter::new(self)
+    pub fn writer<'a>(&'a self) -> StreamWriter<'a, Strat> {
+        StreamWriter::new(self)
     }
 }
 
 /// AsyncReader wrapper for a stridul stream
-pub struct StridulStreamReader<'a, Strat: StridulStrategy> {
-    stream: &'a StridulStream<Strat>,
+pub struct StreamReader<'a, Strat: Strategy> {
+    stream: &'a Stream<Strat>,
     notify: Pin<Box<Notified<'a>>>,
 }
 
-impl<'a, Strat: StridulStrategy> StridulStreamReader<'a, Strat> {
-    fn new(stream: &'a StridulStream<Strat>) -> Self {
+impl<'a, Strat: Strategy> StreamReader<'a, Strat> {
+    fn new(stream: &'a Stream<Strat>) -> Self {
         let mut n = Box::pin(stream.readable_notify.notified());
         n.as_mut().enable();
         Self {
@@ -260,7 +260,7 @@ impl<'a, Strat: StridulStrategy> StridulStreamReader<'a, Strat> {
     }
 }
 
-impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
+impl<'a, Strat: Strategy> AsyncRead for StreamReader<'a, Strat> {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -284,14 +284,14 @@ impl<'a, Strat: StridulStrategy> AsyncRead for StridulStreamReader<'a, Strat> {
 }
 
 /// AsyncWriter wrapper for a stridul stream
-pub struct StridulStreamWriter<'a, Strat: StridulStrategy> {
-    stream: &'a StridulStream<Strat>,
+pub struct StreamWriter<'a, Strat: Strategy> {
+    stream: &'a Stream<Strat>,
     write_buffer_unlock: Option<Pin<Box<dyn 'a + Future<Output = AMutexGuard<'a, BytesMut>>>>>,
-    flushing: Option<Pin<Box<dyn 'a + Future<Output = Result<(), StridulError>>>>>,
+    flushing: Option<Pin<Box<dyn 'a + Future<Output = Result<(), Error>>>>>,
 }
 
-impl<'a, Strat: StridulStrategy> StridulStreamWriter<'a, Strat> {
-    fn new(stream: &'a StridulStream<Strat>) -> Self {
+impl<'a, Strat: Strategy> StreamWriter<'a, Strat> {
+    fn new(stream: &'a Stream<Strat>) -> Self {
         Self {
             stream,
             write_buffer_unlock: None,
@@ -312,7 +312,7 @@ impl<'a, Strat: StridulStrategy> StridulStreamWriter<'a, Strat> {
     }
 }
 
-impl<'a, Strat: StridulStrategy> AsyncWrite for StridulStreamWriter<'a, Strat> {
+impl<'a, Strat: Strategy> AsyncWrite for StreamWriter<'a, Strat> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

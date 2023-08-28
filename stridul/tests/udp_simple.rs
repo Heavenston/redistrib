@@ -16,7 +16,7 @@ use rand::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MyStridulUDPStrategy<const BUFFER_SIZE: usize = 4096>;
-impl<const BUFFER_SIZE: usize> StridulStrategy for MyStridulUDPStrategy<BUFFER_SIZE> {
+impl<const BUFFER_SIZE: usize> Strategy for MyStridulUDPStrategy<BUFFER_SIZE> {
     type Socket = UdpSocket;
     type PeersAddr = SocketAddr;
 
@@ -40,7 +40,7 @@ struct Run {
     sends: Vec<Vec<RunSending>>,
 }
 
-async fn run<Strat: StridulStrategy<Socket = UdpSocket, PeersAddr = SocketAddr>>(
+async fn run<Strat: Strategy<Socket = UdpSocket, PeersAddr = SocketAddr>>(
     run: Run
 ) -> Result<(), anyhow::Error> {
     pub static START: OnceLock<Instant> = OnceLock::new();
@@ -89,7 +89,7 @@ async fn run<Strat: StridulStrategy<Socket = UdpSocket, PeersAddr = SocketAddr>>
 
         let mut sockets = Vec::new();
         for i in 0..run.sockets_count {
-            let (socket, mut socket_driver) = StridulSocket::<MyStridulUDPStrategy>::new(
+            let (socket, mut socket_driver) = Socket::<MyStridulUDPStrategy>::new(
                 UdpSocket::bind("127.0.0.1:0").await?
             );
             log::info!("Socket {i} has addr {}", socket.local_addr()?);

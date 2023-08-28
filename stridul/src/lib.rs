@@ -33,7 +33,7 @@ pub(crate) fn default<T: Default>() -> T {
 }
 
 #[derive(Error, Debug)]
-pub enum StridulError {
+pub enum Error {
     #[error(transparent)]
     OtherIoError(#[from] tokio::io::Error),
     #[error("Unexpected value {message}")]
@@ -51,41 +51,41 @@ pub enum StridulError {
 }
 
 #[async_trait::async_trait]
-pub trait StridulStratSocket<Strat: StridulStrategy>: Send + Sync + 'static {
-    fn local_addr(&self) -> Result<Strat::PeersAddr, StridulError>;
+pub trait StrategySocket<Strat: Strategy>: Send + Sync + 'static {
+    fn local_addr(&self) -> Result<Strat::PeersAddr, Error>;
 
     async fn send_to(
         &self, bytes: &[u8], target: &Strat::PeersAddr
-    ) -> Result<usize, StridulError>;
+    ) -> Result<usize, Error>;
 
     async fn recv_from(
         &self, bytes: &mut [u8]
-    ) -> Result<(usize, Strat::PeersAddr), StridulError>;
+    ) -> Result<(usize, Strat::PeersAddr), Error>;
 }
 
 #[async_trait::async_trait]
-impl<Strat> StridulStratSocket<Strat> for UdpSocket
-    where Strat: StridulStrategy<PeersAddr = SocketAddr>
+impl<Strat> StrategySocket<Strat> for UdpSocket
+    where Strat: Strategy<PeersAddr = SocketAddr>
 {
-    fn local_addr(&self) -> Result<SocketAddr, StridulError> {
+    fn local_addr(&self) -> Result<SocketAddr, Error> {
         Ok(self.local_addr()?)
     }
 
     async fn send_to(
         &self, bytes: &[u8], target: &SocketAddr
-    ) -> Result<usize, StridulError> {
+    ) -> Result<usize, Error> {
         Ok(UdpSocket::send_to(self, bytes, target).await?)
     }
 
     async fn recv_from(
         &self, buf: &mut [u8]
-    ) -> Result<(usize, SocketAddr), StridulError> {
+    ) -> Result<(usize, SocketAddr), Error> {
         Ok(UdpSocket::recv_from(self, buf).await?)
     }
 }
 
-pub trait StridulStrategy: Debug + Sized + 'static {
-    type Socket: StridulStratSocket<Self>;
+pub trait Strategy: Debug + Sized + 'static {
+    type Socket: StrategySocket<Self>;
     type PeersAddr: Debug + Clone + PartialEq + Eq + Hash + Send + Sync + 'static;
 
     const BASE_WINDOW_SIZE: u32;
@@ -96,20 +96,20 @@ pub trait StridulStrategy: Debug + Sized + 'static {
     const PACKET_TIMEOUT: Duration = Duration::from_millis(2000);
 
     fn serialize(
-        packet: &packet::StridulPacket, into: impl Write
-    ) -> Result<(), StridulError> {
+        packet: &packet::Packet, into: impl Write
+    ) -> Result<(), Error> {
         packet.serialize(into)
     }
     fn deserialize(
         from: impl Read
-    ) -> Result<StridulPacket, StridulError> {
-        StridulPacket::deserialize(from)
+    ) -> Result<Packet, Error> {
+        Packet::deserialize(from)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct StridulUDPStrategy;
-impl StridulStrategy for StridulUDPStrategy {
+pub struct DefaultUDPStrategy;
+impl Strategy for DefaultUDPStrategy {
     type Socket = UdpSocket;
     type PeersAddr = SocketAddr;
 
@@ -167,14 +167,14 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl StridulStratSocket<LocalStrategy> for Arc<LocalSocket> {
-        fn local_addr(&self) -> Result<u32, StridulError> {
+    impl StrategySocket<LocalStrategy> for Arc<LocalSocket> {
+        fn local_addr(&self) -> Result<u32, Error> {
             Ok(self.addr)
         }
 
         async fn send_to(
             &self, bytes: &[u8], target: &u32
-        ) -> Result<usize, StridulError> {
+        ) -> Result<usize, Error> {
             if self.drop_rng.lock().unwrap().gen_bool(self.drop_rate) {
                 log::debug!("Oups dropped !");
                 return Ok(bytes.len());
@@ -189,7 +189,7 @@ mod tests {
 
         async fn recv_from(
             &self, bytes: &mut [u8]
-        ) -> Result<(usize, u32), StridulError> {
+        ) -> Result<(usize, u32), Error> {
             let (sender, data) = loop {
                 if let Some(x) = self.recv_buffer.lock().unwrap().pop_back()
                 { break x; };
@@ -203,7 +203,7 @@ mod tests {
 
     #[derive(Debug, Clone, Copy)]
     struct LocalStrategy;
-    impl StridulStrategy for LocalStrategy {
+    impl Strategy for LocalStrategy {
         type Socket = Arc<LocalSocket>;
         type PeersAddr = u32;
 
@@ -232,13 +232,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn full_a_to_b() -> Result<(), StridulError> {
+    async fn full_a_to_b() -> Result<(), Error> {
         setup_logger();
 
         let all = Arc::new(AllSockets::default());
         let local_socket_a = LocalSocket::new(&all, 0, 0, 0.);
         let (socket_a, mut socket_a_driver) =
-            StridulSocket::<LocalStrategy>::new(local_socket_a);
+            Socket::<LocalStrategy>::new(local_socket_a);
         tokio::spawn(async move {
             loop {
                 socket_a_driver.drive().await.expect("Driving crashed");
@@ -247,7 +247,7 @@ mod tests {
 
         let local_socket_b = LocalSocket::new(&all, 1, 0, 0.);
         let (socket_b, mut socket_b_driver) =
-            StridulSocket::<LocalStrategy>::new(local_socket_b);
+            Socket::<LocalStrategy>::new(local_socket_b);
 
         let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr()?)
             .await;
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ab_ba_with_packet_drops() -> Result<(), StridulError> {
+    async fn ab_ba_with_packet_drops() -> Result<(), Error> {
         setup_logger();
 
         let seed1: u64 = 930485893058898908;
@@ -292,7 +292,7 @@ mod tests {
         let all = Arc::new(AllSockets::default());
         let local_socket_a = LocalSocket::new(&all, 0, seed1, packet_drop);
         let (socket_a, mut socket_a_driver) =
-            StridulSocket::<LocalStrategy>::new(local_socket_a);
+            Socket::<LocalStrategy>::new(local_socket_a);
         tokio::spawn(async move {
             loop {
                 socket_a_driver.drive().await.expect("Driving crashed");
@@ -301,7 +301,7 @@ mod tests {
 
         let local_socket_b = LocalSocket::new(&all, 1, seed2, packet_drop);
         let (socket_b, mut socket_b_driver) =
-            StridulSocket::<LocalStrategy>::new(local_socket_b);
+            Socket::<LocalStrategy>::new(local_socket_b);
         tokio::spawn(async move {
             loop {
                 socket_b_driver.drive().await.expect("Driving crashed");
@@ -341,7 +341,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn abba_parallel() -> Result<(), StridulError> {
+    async fn abba_parallel() -> Result<(), Error> {
         setup_logger();
 
         let seed1: u64 = 38759035;
@@ -351,7 +351,7 @@ mod tests {
         let all = Arc::new(AllSockets::default());
         let local_socket_a = LocalSocket::new(&all, 0, seed1, packet_drop);
         let (socket_a, mut socket_a_driver) =
-            StridulSocket::<LocalStrategy>::new(local_socket_a);
+            Socket::<LocalStrategy>::new(local_socket_a);
         tokio::spawn(async move {
             loop {
                 socket_a_driver.drive().await.expect("Driving crashed");
@@ -360,7 +360,7 @@ mod tests {
 
         let local_socket_b = LocalSocket::new(&all, 1, seed2, packet_drop);
         let (socket_b, mut socket_b_driver) =
-            StridulSocket::<LocalStrategy>::new(local_socket_b);
+            Socket::<LocalStrategy>::new(local_socket_b);
         tokio::spawn(async move {
             loop {
                 socket_b_driver.drive().await.expect("Driving crashed");
@@ -387,7 +387,7 @@ mod tests {
             ).await.unwrap()?;
             assert_eq!(b2a_input.as_slice(), &b2a_output[..]);
 
-            Ok::<(), StridulError>(())
+            Ok::<(), Error>(())
         });
 
         let tb = tokio::spawn(async move {
@@ -398,7 +398,7 @@ mod tests {
             ).await.unwrap()?;
             assert_eq!(a2b_input.as_slice(), &a2b_output[..]);
 
-            Ok::<(), StridulError>(())
+            Ok::<(), Error>(())
         });
 
         ta.await.unwrap()?;

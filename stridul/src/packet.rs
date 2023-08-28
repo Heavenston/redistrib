@@ -23,14 +23,14 @@ pub struct PacketId {
 impl PacketId {
     pub fn serialize(
         &self, mut into: impl Write
-    ) -> Result<(), StridulError> {
+    ) -> Result<(), Error> {
         into.write_u32(self.stream_id)?;
         into.write_u32(self.sequence_number)?;
         into.write_u8(self.retransmission)?;
         Ok(())
     }
 
-    pub fn deserialize(mut from: impl Read) -> Result<Self, StridulError> {
+    pub fn deserialize(mut from: impl Read) -> Result<Self, Error> {
         Ok(Self {
             stream_id: from.read_u32()?,
             sequence_number: from.read_u32()?,
@@ -62,13 +62,13 @@ pub struct AckPack {
 impl AckPack {
     pub fn serialize(
         &self, mut into: impl Write
-    ) -> Result<(), StridulError> {
+    ) -> Result<(), Error> {
         self.acked_id.serialize(&mut into)?;
         into.write_u32(self.window_size)?;
         Ok(())
     }
 
-    pub fn deserialize(mut from: impl Read) -> Result<Self, StridulError> {
+    pub fn deserialize(mut from: impl Read) -> Result<Self, Error> {
         Ok(Self {
             acked_id: PacketId::deserialize(&mut from)?,
             window_size: from.read_u32()?,
@@ -92,13 +92,13 @@ pub struct DataPack {
 impl DataPack {
     pub fn serialize(
         &self, mut into: impl Write
-    ) -> Result<(), StridulError> {
+    ) -> Result<(), Error> {
         self.id.serialize(&mut into)?;
         into.write_all(&self.data)?;
         Ok(())
     }
 
-    pub fn deserialize(mut from: impl Read) -> Result<Self, StridulError> {
+    pub fn deserialize(mut from: impl Read) -> Result<Self, Error> {
         let id = PacketId::deserialize(&mut from)?;
         // FIXPERF: Allocation and copies >:(
         let mut data = Vec::new();
@@ -125,12 +125,12 @@ pub struct MessagePack {
 impl MessagePack {
     pub fn serialize(
         &self, mut into: impl Write
-    ) -> Result<(), StridulError> {
+    ) -> Result<(), Error> {
         into.write_all(&self.data)?;
         Ok(())
     }
 
-    pub fn deserialize(mut from: impl Read) -> Result<Self, StridulError> {
+    pub fn deserialize(mut from: impl Read) -> Result<Self, Error> {
         // FIXPERF: Allocation and copies >:(
         let mut data = Vec::new();
         from.read_to_end(&mut data)?;
@@ -148,26 +148,26 @@ impl std::fmt::Display for MessagePack {
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum StridulPacket {
+pub enum Packet {
     Ack(AckPack),
     Data(DataPack),
     Message(MessagePack),
 }
 
-impl StridulPacket {
+impl Packet {
     pub fn serialize(
         &self, mut into: impl Write
-    ) -> Result<(), StridulError> {
+    ) -> Result<(), Error> {
         match self {
-            StridulPacket::Ack(ack) => {
+            Packet::Ack(ack) => {
                 into.write_u16(0)?;
                 ack.serialize(&mut into)?;
             },
-            StridulPacket::Data(data) => {
+            Packet::Data(data) => {
                 into.write_u16(1)?;
                 data.serialize(&mut into)?;
             },
-            StridulPacket::Message(mess) => {
+            Packet::Message(mess) => {
                 into.write_u16(2)?;
                 mess.serialize(&mut into)?;
             },
@@ -175,13 +175,13 @@ impl StridulPacket {
         Ok(())
     }
 
-    pub fn deserialize(mut from: impl Read) -> Result<Self, StridulError> {
+    pub fn deserialize(mut from: impl Read) -> Result<Self, Error> {
         // Only the low byte is used for possible future extensions
         match from.read_u16()? & 0xFF {
             0 => Ok(Self::Ack(AckPack::deserialize(&mut from)?)),
             1 => Ok(Self::Data(DataPack::deserialize(&mut from)?)),
             3 => Ok(Self::Message(MessagePack::deserialize(&mut from)?)),
-            id => Err(StridulError::UnexpectedValueError {
+            id => Err(Error::UnexpectedValueError {
                 message: format!("Supported packet types are 0 and 1, got {id}"),
             })
         }
@@ -189,22 +189,22 @@ impl StridulPacket {
 
     pub fn id(&self) -> Option<PacketId> {
         match self {
-            StridulPacket::Ack(ack) => Some(ack.acked_id),
-            StridulPacket::Data(data) => Some(data.id),
-            StridulPacket::Message(_) => None,
+            Packet::Ack(ack) => Some(ack.acked_id),
+            Packet::Data(data) => Some(data.id),
+            Packet::Message(_) => None,
         }
     }
 
     pub fn has_data(&self) -> bool {
         match self {
-            StridulPacket::Data(..) => true,
-            StridulPacket::Message(..) => true,
-            StridulPacket::Ack(..) => false,
+            Packet::Data(..) => true,
+            Packet::Message(..) => true,
+            Packet::Ack(..) => false,
         }
     }
 
     pub fn data(&self) -> Option<&Bytes> {
-        use StridulPacket::*;
+        use Packet::*;
         match self {
             Ack(..)
                 => None,
@@ -219,29 +219,29 @@ impl StridulPacket {
     }
 }
 
-impl std::fmt::Display for StridulPacket {
+impl std::fmt::Display for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StridulPacket::Ack(pack) => write!(f, "{pack}"),
-            StridulPacket::Data(pack) => write!(f, "{pack}"),
-            StridulPacket::Message(pack) => write!(f, "{pack}"),
+            Packet::Ack(pack) => write!(f, "{pack}"),
+            Packet::Data(pack) => write!(f, "{pack}"),
+            Packet::Message(pack) => write!(f, "{pack}"),
         }
     }
 }
 
-impl From<AckPack> for StridulPacket {
+impl From<AckPack> for Packet {
     fn from(value: AckPack) -> Self {
         Self::Ack(value)
     }
 }
 
-impl From<DataPack> for StridulPacket {
+impl From<DataPack> for Packet {
     fn from(value: DataPack) -> Self {
         Self::Data(value)
     }
 }
 
-impl From<MessagePack> for StridulPacket {
+impl From<MessagePack> for Packet {
     fn from(value: MessagePack) -> Self {
         Self::Message(value)
     }

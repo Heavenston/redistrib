@@ -15,7 +15,7 @@ use futures::future::Either as fEither;
 type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
 
 #[derive(Debug)]
-pub(crate) struct InFlightPacket<Strat: StridulStrategy> {
+pub(crate) struct InFlightPacket<Strat: Strategy> {
     pub packet: DataPack,
     pub addr: Strat::PeersAddr,
     pub sent_at: Instant,
@@ -23,7 +23,7 @@ pub(crate) struct InFlightPacket<Strat: StridulStrategy> {
     pub ack_send: oneshot::Sender<()>,
 }
 
-impl<Strat: StridulStrategy> Display for InFlightPacket<Strat> {
+impl<Strat: Strategy> Display for InFlightPacket<Strat> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "InFlightPacket({}, sender {:?}, sent {}ms, rto {}ms)",
             self.packet, self.addr, self.sent_at.elapsed().as_millis(),
@@ -34,25 +34,25 @@ impl<Strat: StridulStrategy> Display for InFlightPacket<Strat> {
 
 #[derive(derivative::Derivative, thiserror::Error)]
 #[derivative(Debug)]
-pub enum CreateStreamError<Strat: StridulStrategy> {
+pub enum CreateStreamError<Strat: Strategy> {
     #[error("A Stream already exists with the same id and peer addr")]
-    AlreadyCreated(#[derivative(Debug="ignore")] Arc<StridulStream<Strat>>),
+    AlreadyCreated(#[derivative(Debug="ignore")] Arc<Stream<Strat>>),
 }
 
-pub struct StridulSocket<Strat: StridulStrategy> {
+pub struct Socket<Strat: Strategy> {
     socket: Strat::Socket,
 
-    async_packet_send_request_send: mpsc::Sender<(Strat::PeersAddr, StridulPacket)>,
+    async_packet_send_request_send: mpsc::Sender<(Strat::PeersAddr, Packet)>,
     packets_in_flight_send: mpsc::Sender<InFlightPacket<Strat>>,
     created_streams: FlumePipe<(
-        Arc<StridulStream<Strat>>, oneshot::Sender<Result<(), CreateStreamError<Strat>>>
+        Arc<Stream<Strat>>, oneshot::Sender<Result<(), CreateStreamError<Strat>>>
     )>,
 }
 
-impl<Strat: StridulStrategy> StridulSocket<Strat> {
+impl<Strat: Strategy> Socket<Strat> {
     pub fn new(
         socket: Strat::Socket
-    ) -> (Arc<Self>, StridulSocketDriver<Strat>) {
+    ) -> (Arc<Self>, SocketDriver<Strat>) {
         let (
             packets_in_flight_send, packets_in_flight_recv
         ) = mpsc::channel(2048);
@@ -67,7 +67,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
             packets_in_flight_send,
             created_streams: flume::unbounded(),
         });
-        let driver = StridulSocketDriver {
+        let driver = SocketDriver {
             socket: Arc::clone(&this),
 
             async_packet_send_request_recv,
@@ -80,15 +80,15 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
         (this, driver)
     }
 
-    pub fn local_addr(&self) -> Result<Strat::PeersAddr, StridulError> {
+    pub fn local_addr(&self) -> Result<Strat::PeersAddr, Error> {
         Ok(self.socket.local_addr()?)
     }
 
     pub async fn create_stream(
         self: &Arc<Self>, id: StreamID, peer_addr: Strat::PeersAddr,
-    ) -> Result<Arc<StridulStream<Strat>>, CreateStreamError<Strat>> {
+    ) -> Result<Arc<Stream<Strat>>, CreateStreamError<Strat>> {
         let (rs_send, rs_recv) = oneshot::channel();
-        let stream = StridulStream::new(
+        let stream = Stream::new(
             id, peer_addr, Arc::clone(self)
         );
         let _ = self.created_streams.0.send((Arc::clone(&stream), rs_send));
@@ -97,7 +97,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
 
     pub async fn get_or_create_stream(
         self: &Arc<Self>, id: StreamID, peer_addr: Strat::PeersAddr,
-    ) -> Arc<StridulStream<Strat>> {
+    ) -> Arc<Stream<Strat>> {
         match self.create_stream(id, peer_addr).await {
             Ok(s) | Err(CreateStreamError::AlreadyCreated(s)) => s,
         }
@@ -106,15 +106,15 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
     /// Sends an unreliable message to peer_addr
     pub async fn send_message(
         self: &Arc<Self>, peer_addr: Strat::PeersAddr, data: Bytes,
-    ) -> Result<(), StridulError> {
+    ) -> Result<(), Error> {
         self.send_raw(&peer_addr, &MessagePack { data }.into()).await
     }
 
     pub(crate) async fn send_raw(
-        &self, dest: &Strat::PeersAddr, packet: &StridulPacket
-    ) -> Result<(), StridulError> {
+        &self, dest: &Strat::PeersAddr, packet: &Packet
+    ) -> Result<(), Error> {
         if packet.data_len() as u128 > Strat::PACKET_MAX_SIZE as u128 {
-            return Err(StridulError::PacketTooBig {
+            return Err(Error::PacketTooBig {
                 size: packet.data_len(),
                 maximum: Strat::PACKET_MAX_SIZE as usize
             });
@@ -132,7 +132,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
 
     pub(crate) async fn send_raw_reliable(
         &self, dest: Strat::PeersAddr, packet: DataPack,
-    ) -> Result<oneshot::Receiver<()>, StridulError> {
+    ) -> Result<oneshot::Receiver<()>, Error> {
         self.send_raw(&dest, &packet.clone().into()).await?;
 
         let (ack_send, ack_recv) = oneshot::channel();
@@ -149,7 +149,7 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
     }
 
     pub(crate) fn request_async_send_raw(
-        &self, dest: Strat::PeersAddr, packet: StridulPacket
+        &self, dest: Strat::PeersAddr, packet: Packet
     ) -> bool {
         log::trace!(
             "[{:?}] > {} asyncly to {:?}",
@@ -159,9 +159,9 @@ impl<Strat: StridulStrategy> StridulSocket<Strat> {
     }
 }
 
-pub enum StridulDriveEvent<Strat: StridulStrategy> {
+pub enum DrivingEvent<Strat: Strategy> {
     NewStream {
-        stream: Arc<StridulStream<Strat>>,
+        stream: Arc<Stream<Strat>>,
     },
     Message {
         data: Bytes,
@@ -169,15 +169,15 @@ pub enum StridulDriveEvent<Strat: StridulStrategy> {
     },
 }
 
-impl<Strat: StridulStrategy> StridulDriveEvent<Strat> {
-    pub fn into_new_stream(self) -> Option<Arc<StridulStream<Strat>>> {
+impl<Strat: Strategy> DrivingEvent<Strat> {
+    pub fn into_new_stream(self) -> Option<Arc<Stream<Strat>>> {
         match self {
             Self::NewStream { stream } => Some(stream),
             _ => None,
         }
     }
 
-    pub fn new_stream(&self) -> Option<&Arc<StridulStream<Strat>>> {
+    pub fn new_stream(&self) -> Option<&Arc<Stream<Strat>>> {
         match self {
             Self::NewStream { stream } => Some(stream),
             _ => None,
@@ -199,32 +199,32 @@ impl<Strat: StridulStrategy> StridulDriveEvent<Strat> {
     }
 }
 
-pub struct StridulSocketDriver<Strat: StridulStrategy> {
-    socket: Arc<StridulSocket<Strat>>,
+pub struct SocketDriver<Strat: Strategy> {
+    socket: Arc<Socket<Strat>>,
 
     // FIXPERF: There gotta be a better data structure
     streams: HashMap<
-        Strat::PeersAddr, HashMap<StreamID, Arc<StridulStream<Strat>>>
+        Strat::PeersAddr, HashMap<StreamID, Arc<Stream<Strat>>>
     >,
 
-    async_packet_send_request_recv: mpsc::Receiver<(Strat::PeersAddr, StridulPacket)>,
+    async_packet_send_request_recv: mpsc::Receiver<(Strat::PeersAddr, Packet)>,
     packets_in_flight_recv: mpsc::Receiver<InFlightPacket<Strat>>,
 
     /// The list of all packets that has not been acknoledged yet
     /// Sorted from oldest to newest
     packets_in_flight: Vec<InFlightPacket<Strat>>,
 
-    streams_with_window_0: Vec<(Weak<StridulStream<Strat>>, Instant)>,
+    streams_with_window_0: Vec<(Weak<Stream<Strat>>, Instant)>,
 }
 
-impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
+impl<Strat: Strategy> SocketDriver<Strat> {
     /// Drives the socket until a new stream is received
     ///
     /// Must be called in a loop as no packet can be received while this is
     /// not running
     pub async fn drive(
         &mut self
-    ) -> Result<StridulDriveEvent<Strat>, StridulError> {
+    ) -> Result<DrivingEvent<Strat>, Error> {
         const BUFFER_SIZE: usize = 1024;
         let mut buffer = BytesMut::zeroed(BUFFER_SIZE + 8);
 
@@ -375,11 +375,11 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
     }
 
     async fn packet(
-        &mut self, addr: Strat::PeersAddr, packet: StridulPacket,
-    ) -> Result<ControlFlow<StridulDriveEvent<Strat>>, StridulError> {
+        &mut self, addr: Strat::PeersAddr, packet: Packet,
+    ) -> Result<ControlFlow<DrivingEvent<Strat>>, Error> {
         log::trace!("[{:?}] < {} from {:?}", self.socket.local_addr()?, packet, addr);
         match packet {
-            StridulPacket::Ack(pack) => {
+            Packet::Ack(pack) => {
                 // Get the stream of the acked packet to notify it of the
                 // acknoledgment
                 let stream = self.streams.get(&addr)
@@ -415,14 +415,14 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                     flying_packet.ack_send.send(()).unwrap();
                 }
             },
-            StridulPacket::Data(pack) => {
+            Packet::Data(pack) => {
                 let (is_new_stream, stream) = self.streams.get(&addr)
                     .and_then(|addr_streams|
                         addr_streams
                             .get(&pack.id.stream_id).cloned()
                             .map(|s| (false, s))
                     ).unwrap_or_else(|| {
-                        let stream = StridulStream::new(
+                        let stream = Stream::new(
                             pack.id.stream_id,
                             addr.clone(),
                             Arc::clone(&self.socket)
@@ -449,12 +449,12 @@ impl<Strat: StridulStrategy> StridulSocketDriver<Strat> {
                     return Ok(ControlFlow::Continue(()));
                 }
 
-                return Ok(ControlFlow::Break(StridulDriveEvent::NewStream {
+                return Ok(ControlFlow::Break(DrivingEvent::NewStream {
                     stream
                 }));
             },
-            StridulPacket::Message(MessagePack { data }) => {
-                return Ok(ControlFlow::Break(StridulDriveEvent::Message {
+            Packet::Message(MessagePack { data }) => {
+                return Ok(ControlFlow::Break(DrivingEvent::Message {
                     data,
                     from: addr,
                 }));
