@@ -3,7 +3,6 @@
 #![feature(core_intrinsics)]
 #![feature(io_error_other)]
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
 
 mod socket;
@@ -19,13 +18,11 @@ pub use stream::*;
 mod sparious_buffer;
 pub(crate) use sparious_buffer::*;
 
-use std::{net::SocketAddr, time::Duration, sync::Arc, hash::Hash, fmt::Debug, io::{Write, Read}};
+use std::{net::SocketAddr, time::Duration, hash::Hash, fmt::Debug, io::{Write, Read}};
 
 use bytes::BufMut;
-use tokio::net::{UdpSocket, ToSocketAddrs};
+use tokio::net::UdpSocket;
 use thiserror::Error;
-
-pub(crate) const DEFAULT_RTO: Duration = Duration::from_millis(100);
 
 /// Stable version of the std function
 pub(crate) fn default<T: Default>() -> T {
@@ -122,15 +119,14 @@ impl Strategy for DefaultUDPStrategy {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
-    use std::sync::OnceLock;
+    use std::sync::{OnceLock, Arc};
     use std::time::Instant;
     use std::{collections::HashMap, sync::Mutex};
-    use std::io::{Write, Read};
+    use std::io::Write;
 
-    use bytes::{BytesMut, BufMut, Bytes};
-    use tokio::sync::{futures::Notified, Notify};
+    use bytes::{BytesMut, Bytes};
+    use tokio::sync::Notify;
     use tokio::io::AsyncReadExt;
-    use tokio::time::timeout;
     use rand::prelude::*;
 
     use crate::*;

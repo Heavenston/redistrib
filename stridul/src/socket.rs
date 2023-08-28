@@ -1,15 +1,12 @@
 use crate::*;
 
 use std::{
-    time::{Duration, Instant}, sync::{Arc, RwLock, Mutex, Weak},
-    collections::HashMap, ops::ControlFlow, mem::size_of, fmt::Display
+    time::{Duration, Instant}, sync::{Arc, Weak},
+    collections::HashMap, ops::ControlFlow, fmt::Display
 };
 
-use static_assertions as ca;
 use bytes::{Bytes, BytesMut};
-use itertools::Itertools;
-use tokio::{net::{UdpSocket, ToSocketAddrs}, stream, time as ttime, sync::{mpsc, oneshot}};
-use thiserror::Error;
+use tokio::{time as ttime, sync::{mpsc, oneshot}};
 use futures::future::Either as fEither;
 
 type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
