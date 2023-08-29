@@ -1,26 +1,24 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use stridul::{StridulSocket, StridulStrategy, StridulSocketDriver};
-
 use tokio::net::{UdpSocket, ToSocketAddrs};
 
 #[derive(Debug, Clone)]
 pub struct CobwebStridulStrategy;
-impl StridulStrategy for CobwebStridulStrategy {
+impl stridul::Strategy for CobwebStridulStrategy {
     type Socket = UdpSocket;
     type PeersAddr = SocketAddr;
 
-    const BASE_WINDOW_SIZE: u32 = stridul::StridulUDPStrategy::BASE_WINDOW_SIZE;
-    const BASE_RTO: std::time::Duration = stridul::StridulUDPStrategy::BASE_RTO;
-    const PACKET_MAX_SIZE: u32 = stridul::StridulUDPStrategy::PACKET_MAX_SIZE;
-    const BUFFER_MAX_SIZE: usize = stridul::StridulUDPStrategy::BUFFER_MAX_SIZE;
+    const BASE_WINDOW_SIZE: u32 = stridul::DefaultUDPStrategy::BASE_WINDOW_SIZE;
+    const BASE_RTO: std::time::Duration = stridul::DefaultUDPStrategy::BASE_RTO;
+    const PACKET_MAX_SIZE: u32 = stridul::DefaultUDPStrategy::PACKET_MAX_SIZE;
+    const BUFFER_MAX_SIZE: usize = stridul::DefaultUDPStrategy::BUFFER_MAX_SIZE;
 }
 
 // TODO: Make it generic-based to avoid runtime errors on build
 #[derive(Default)]
 pub struct NodeBuilder {
-    socket: Option<Arc<StridulSocket<CobwebStridulStrategy>>>,
-    socket_driver: Option<StridulSocketDriver<CobwebStridulStrategy>>,
+    socket: Option<Arc<stridul::Socket<CobwebStridulStrategy>>>,
+    socket_driver: Option<stridul::SocketDriver<CobwebStridulStrategy>>,
 }
 
 impl NodeBuilder {
@@ -38,8 +36,8 @@ impl NodeBuilder {
 
     pub fn with_stridul_socket(
         &mut self,
-        socket: Arc<StridulSocket<CobwebStridulStrategy>>,
-        socket_driver: StridulSocketDriver<CobwebStridulStrategy>,
+        socket: Arc<stridul::Socket<CobwebStridulStrategy>>,
+        socket_driver: stridul::SocketDriver<CobwebStridulStrategy>,
     ) -> &mut Self {
         self.socket = Some(socket);
         self.socket_driver = Some(socket_driver);
@@ -49,7 +47,7 @@ impl NodeBuilder {
     pub fn with_udp_socket(
         &mut self, udp_socket: UdpSocket,
     ) -> &mut Self {
-        let (socket, driver) = StridulSocket::new(udp_socket);
+        let (socket, driver) = stridul::Socket::new(udp_socket);
         self.socket = Some(socket);
         self.socket_driver = Some(driver);
         self
@@ -63,7 +61,7 @@ impl NodeBuilder {
 }
 
 pub struct Node {
-    socket: Arc<StridulSocket<CobwebStridulStrategy>>,
+    socket: Arc<stridul::Socket<CobwebStridulStrategy>>,
 }
 
 impl Node {
