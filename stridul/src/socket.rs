@@ -36,6 +36,7 @@ pub enum CreateStreamError<Strat: Strategy> {
     AlreadyCreated(#[derivative(Debug="ignore")] Arc<Stream<Strat>>),
 }
 
+#[derive(Debug)]
 pub struct Socket<Strat: Strategy> {
     socket: Strat::Socket,
 
@@ -156,6 +157,7 @@ impl<Strat: Strategy> Socket<Strat> {
     }
 }
 
+#[derive(Debug)]
 pub enum DrivingEvent<Strat: Strategy> {
     NewStream {
         stream: Arc<Stream<Strat>>,

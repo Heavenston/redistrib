@@ -6,6 +6,7 @@ use std::future::Future;
 use bytes::{BytesMut, BufMut};
 use tokio::{io::{AsyncRead, AsyncWrite}, sync::{Notify, futures::Notified, Mutex as AMutex, MutexGuard as AMutexGuard}};
 use itertools::Itertools;
+use derivative::Derivative;
 
 pub(crate) type StreamID = u32;
 
@@ -15,9 +16,12 @@ struct FlyingBufferInfo {
     pub size: u32,
 }
 
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Stream<Strat: Strategy> {
     id: StreamID,
     peer_addr: Strat::PeersAddr,
+    #[derivative(Debug="ignore")]
     socket: Arc<Socket<Strat>>,
 
     received: Mutex<SortedSpariousBuffer>,

@@ -128,6 +128,7 @@ mod tests {
     use tokio::sync::Notify;
     use tokio::io::AsyncReadExt;
     use rand::prelude::*;
+    use tokio::time::timeout;
 
     use crate::*;
 
@@ -163,7 +164,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl StrategySocket<LocalStrategy> for Arc<LocalSocket> {
+    impl<const MAX: u32> StrategySocket<LocalStrategy<MAX>> for Arc<LocalSocket> {
         fn local_addr(&self) -> Result<u32, Error> {
             Ok(self.addr)
         }
@@ -171,6 +172,8 @@ mod tests {
         async fn send_to(
             &self, bytes: &[u8], target: &u32
         ) -> Result<usize, Error> {
+            log::trace!("Sending {} bytes to {}", bytes.len(), *target);
+
             if self.drop_rng.lock().unwrap().gen_bool(self.drop_rate) {
                 log::debug!("Oups dropped !");
                 return Ok(bytes.len());
@@ -198,14 +201,14 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy)]
-    struct LocalStrategy;
-    impl Strategy for LocalStrategy {
+    struct LocalStrategy<const MAX: u32 = 8>;
+    impl<const MAX: u32> Strategy for LocalStrategy<MAX> {
         type Socket = Arc<LocalSocket>;
         type PeersAddr = u32;
 
         const BASE_WINDOW_SIZE: u32 = 32;
         const BASE_RTO: Duration = Duration::from_millis(10);
-        const PACKET_MAX_SIZE: u32 = 8;
+        const PACKET_MAX_SIZE: u32 = MAX;
         const BUFFER_MAX_SIZE: usize = 256;
     }
 
@@ -399,6 +402,69 @@ mod tests {
 
         ta.await.unwrap()?;
         tb.await.unwrap()?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn message_simple() -> anyhow::Result<()> {
+        setup_logger();
+
+        let all = Arc::new(AllSockets::default());
+        let local_socket_a = LocalSocket::new(&all, 0, 0, 0.);
+        let (socket_a, mut driver_a) =
+            Socket::<LocalStrategy<32>>::new(local_socket_a);
+        let addr_a = socket_a.local_addr()?;
+
+        let local_socket_b = LocalSocket::new(&all, 1, 0, 0.);
+        let (socket_b, mut driver_b) =
+            Socket::<LocalStrategy<32>>::new(local_socket_b);
+        let addr_b = socket_b.local_addr()?;
+
+        async fn send_and_check(
+            s: &Arc<Socket<LocalStrategy<32>>>,
+            d: &mut SocketDriver<LocalStrategy<32>>,
+            to: u32,
+            bytes: Bytes,
+        ) -> anyhow::Result<()> {
+            s.send_message(to, bytes.clone()).await?;
+
+            if let DrivingEvent::Message { data, from } = timeout(
+                Duration::from_millis(2000),
+                d.drive(),
+            ).await?? {
+                assert_eq!(&data[..], &bytes[..]);
+                assert_eq!(from, s.local_addr()?);
+            }
+            else {
+                panic!("Not a message");
+            }
+
+            Ok(())
+        }
+
+        log::info!("a to b");
+
+        send_and_check(
+            &socket_a, &mut driver_b, addr_b, Bytes::from_static(b"Bonjour")
+        ).await?;
+
+        log::info!("b to a");
+
+        send_and_check(
+            &socket_b, &mut driver_a, addr_a, Bytes::from_static(b"Aurevoir")
+        ).await?;
+
+        log::info!("Same time");
+
+        tokio::try_join!(
+            send_and_check(
+                &socket_a, &mut driver_b, addr_b, Bytes::from_static(b"This is me")
+            ),
+            send_and_check(
+                &socket_b, &mut driver_a, addr_a, Bytes::from_static(b"and me to")
+            ),
+        )?;
 
         Ok(())
     }

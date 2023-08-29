@@ -134,7 +134,13 @@ impl MessagePack {
 
 impl std::fmt::Display for MessagePack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Message(len{})", self.data.len())
+        write!(f, "Message(")?;
+        if self.data.len() < 10 {
+            write!(f, "{:?}, ", self.data)?;
+        }
+        write!(f, "len{})", self.data.len())?;
+
+        Ok(())
     }
 }
 
@@ -152,15 +158,15 @@ impl Packet {
     ) -> Result<(), Error> {
         match self {
             Packet::Ack(ack) => {
-                into.write_u16(0)?;
+                into.write_u16(0x0000)?;
                 ack.serialize(&mut into)?;
             },
             Packet::Data(data) => {
-                into.write_u16(1)?;
+                into.write_u16(0x0001)?;
                 data.serialize(&mut into)?;
             },
             Packet::Message(mess) => {
-                into.write_u16(2)?;
+                into.write_u16(0x0002)?;
                 mess.serialize(&mut into)?;
             },
         }
@@ -170,11 +176,11 @@ impl Packet {
     pub fn deserialize(mut from: impl Read) -> Result<Self, Error> {
         // Only the low byte is used for possible future extensions
         match from.read_u16()? & 0xFF {
-            0 => Ok(Self::Ack(AckPack::deserialize(&mut from)?)),
-            1 => Ok(Self::Data(DataPack::deserialize(&mut from)?)),
-            3 => Ok(Self::Message(MessagePack::deserialize(&mut from)?)),
+            0x00 => Ok(Self::Ack(AckPack::deserialize(&mut from)?)),
+            0x01 => Ok(Self::Data(DataPack::deserialize(&mut from)?)),
+            0x02 => Ok(Self::Message(MessagePack::deserialize(&mut from)?)),
             id => Err(Error::UnexpectedValueError {
-                message: format!("Supported packet types are 0 and 1, got {id}"),
+                message: format!("Supported packet types are 0..=2, got {id}"),
             })
         }
     }

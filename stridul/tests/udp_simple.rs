@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::{sync::OnceLock, time::Instant};
 use std::io::Write;
 
-use bytes::{BytesMut, BufMut};
+use bytes::{BytesMut, BufMut, Bytes};
 use env_logger::WriteStyle;
 use env_logger::fmt::Color;
 use tokio::task::JoinSet;
@@ -39,9 +39,7 @@ struct Run {
     sends: Vec<Vec<RunSending>>,
 }
 
-async fn run<Strat: stridul::Strategy<Socket = UdpSocket, PeersAddr = SocketAddr>>(
-    run: Run
-) -> Result<(), anyhow::Error> {
+fn setup_logger() {
     pub static START: OnceLock<Instant> = OnceLock::new();
 
     let _ = env_logger::builder()
@@ -73,6 +71,12 @@ async fn run<Strat: stridul::Strategy<Socket = UdpSocket, PeersAddr = SocketAddr
             )
         })
         .try_init();
+}
+
+async fn run<Strat: stridul::Strategy<Socket = UdpSocket, PeersAddr = SocketAddr>>(
+    run: Run
+) -> Result<(), anyhow::Error> {
+    setup_logger();
 
     let mut i = 0;
 
@@ -349,4 +353,63 @@ pub async fn udp_ab_ab_ab_multithreaded() -> anyhow::Result<()> {
             },
         ]],
     }).await
+}
+
+#[tokio::test]
+async fn udp_messages() -> anyhow::Result<()> {
+    let (socket_a, mut driver_a) = stridul::Socket::<MyUDPStrategy>::new(
+        UdpSocket::bind("127.0.0.1:0").await?
+    );
+    let addr_a = socket_a.local_addr()?;
+    let (socket_b, mut driver_b) = stridul::Socket::<MyUDPStrategy>::new(
+        UdpSocket::bind("127.0.0.1:0").await?
+    );
+    let addr_b = socket_b.local_addr()?;
+
+    async fn send_and_check<Strat: stridul::Strategy>(
+        s: &Arc<stridul::Socket<Strat>>,
+        d: &mut stridul::SocketDriver<Strat>,
+        to: Strat::PeersAddr,
+        bytes: Bytes,
+    ) -> anyhow::Result<()> {
+        s.send_message(to.clone(), bytes.clone()).await?;
+
+        if let stridul::DrivingEvent::Message { data, from } = timeout(
+            Duration::from_millis(2000),
+            d.drive(),
+        ).await?? {
+            assert_eq!(&data[..], &bytes[..]);
+            assert_eq!(from, s.local_addr()?);
+        }
+        else {
+            panic!("Not a message");
+        }
+
+        Ok(())
+    }
+
+    log::info!("a to b");
+
+    send_and_check(
+        &socket_a, &mut driver_b, addr_b, Bytes::from_static(b"Test test test test")
+    ).await?;
+
+    log::info!("b to a");
+
+    send_and_check(
+        &socket_b, &mut driver_a, addr_a, Bytes::from_static(b"Yes test &&&")
+    ).await?;
+
+    log::info!("Same time");
+
+    tokio::try_join!(
+        send_and_check(
+            &socket_a, &mut driver_b, addr_b, Bytes::from_static(b"We are comunicating")
+        ),
+        send_and_check(
+            &socket_b, &mut driver_a, addr_a, Bytes::from_static(b"at the same time")
+        ),
+    )?;
+
+    Ok(())
 }
