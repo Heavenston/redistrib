@@ -125,14 +125,18 @@ mod tests {
     use std::time::Instant;
     use std::{collections::HashMap, sync::Mutex};
     use std::io::Write;
+    use std::future::Future;
 
     use bytes::{BytesMut, Bytes};
     use tokio::sync::Notify;
     use tokio::io::AsyncReadExt;
     use rand::prelude::*;
-    use tokio::time::timeout;
 
     use crate::*;
+
+    async fn timeout<F: Future>(f: F) -> anyhow::Result<F::Output> {
+        Ok(tokio::time::timeout(Duration::from_millis(2000), f).await?)
+    }
 
     #[derive(Default)]
     struct AllSockets {
@@ -431,10 +435,9 @@ mod tests {
         ) -> anyhow::Result<()> {
             s.send_message(to, bytes.clone()).await?;
 
-            if let DrivingEvent::Message { data, from } = timeout(
-                Duration::from_millis(2000),
-                d.drive(),
-            ).await?? {
+            if let DrivingEvent::Message { data, from }
+                = timeout(d.drive()).await??
+            {
                 assert_eq!(&data[..], &bytes[..]);
                 assert_eq!(from, s.local_addr());
             }
@@ -467,6 +470,61 @@ mod tests {
                 &socket_b, &mut driver_a, addr_a, Bytes::from_static(b"and me to")
             ),
         )?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn loopbacks() -> anyhow::Result<()> {
+        setup_logger();
+
+        let all = Arc::new(AllSockets::default());
+        let local_socket_a = LocalSocket::new(&all, 0, 0, 0.);
+        let (socket_a, mut driver_a) =
+            Socket::<LocalStrategy<128>>::new(local_socket_a);
+        let addr_a = socket_a.local_addr();
+
+        log::info!("Sending message");
+
+        let message = Bytes::from_static(&b"This is a test"[..]);
+        timeout(socket_a.send_message(
+            addr_a,
+            message.clone(),
+        )).await??;
+
+        log::info!("Receiving message");
+
+        match timeout(driver_a.drive()).await?? {
+            DrivingEvent::Message { data, from } => {
+                assert_eq!(&data[..], &message[..]);
+                assert_eq!(from, addr_a);
+            },
+            _ => panic!("Wrong event"),
+        }
+
+        log::info!("Creating stream");
+
+        tokio::spawn(async move {
+            loop {
+                driver_a.drive().await.unwrap();
+            }
+        });
+
+        let stream = timeout(socket_a.get_or_create_stream(0, addr_a)).await??;
+
+        log::info!("Writing message to stream");
+
+        timeout(stream.write(&message)).await??;
+
+        log::info!("Flushing");
+
+        timeout(stream.flush()).await??;
+
+        log::info!("Received message from stream");
+
+        let mut received = BytesMut::zeroed(message.len());
+        stream.reader().read_exact(&mut received).await?;
+        assert_eq!(&received[..], &message[..]);
 
         Ok(())
     }
