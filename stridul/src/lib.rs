@@ -42,6 +42,8 @@ pub enum Error {
         size: usize,
         maximum: usize,
     },
+    #[error("The driver associated with this socket has been dropped")]
+    DriverDropped,
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -49,7 +51,7 @@ pub enum Error {
 
 #[async_trait::async_trait]
 pub trait StrategySocket<Strat: Strategy>: Send + Sync + 'static {
-    fn local_addr(&self) -> Result<Strat::PeersAddr, Error>;
+    fn local_addr(&self) -> Strat::PeersAddr;
 
     async fn send_to(
         &self, bytes: &[u8], target: &Strat::PeersAddr
@@ -64,8 +66,8 @@ pub trait StrategySocket<Strat: Strategy>: Send + Sync + 'static {
 impl<Strat> StrategySocket<Strat> for UdpSocket
     where Strat: Strategy<PeersAddr = SocketAddr>
 {
-    fn local_addr(&self) -> Result<SocketAddr, Error> {
-        Ok(self.local_addr()?)
+    fn local_addr(&self) -> SocketAddr {
+        self.local_addr().expect("Local addr fetch fail")
     }
 
     async fn send_to(
@@ -165,8 +167,8 @@ mod tests {
 
     #[async_trait::async_trait]
     impl<const MAX: u32> StrategySocket<LocalStrategy<MAX>> for Arc<LocalSocket> {
-        fn local_addr(&self) -> Result<u32, Error> {
-            Ok(self.addr)
+        fn local_addr(&self) -> u32 {
+            self.addr
         }
 
         async fn send_to(
@@ -248,8 +250,8 @@ mod tests {
         let (socket_b, mut socket_b_driver) =
             Socket::<LocalStrategy>::new(local_socket_b);
 
-        let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr()?)
-            .await;
+        let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr())
+            .await?;
         log::info!("Waiting for write");
         let input = b"Hi harry potter how are you !!!";
         a2b.write(input).await?;
@@ -261,7 +263,7 @@ mod tests {
             socket_b_driver.drive(),
         ).await.unwrap()?.into_new_stream().expect("Expected a new stream");
         assert_eq!(b2a.id(), a2b.id());
-        assert_eq!(*b2a.peer_addr(), socket_a.local_addr()?);
+        assert_eq!(*b2a.peer_addr(), socket_a.local_addr());
 
         tokio::spawn(async move {
             loop {
@@ -307,8 +309,8 @@ mod tests {
             }
         });
 
-        let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr()?)
-            .await;
+        let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr())
+            .await?;
         log::info!("Waiting for write");
         let input = b"This message is offfered to you by a very prestigeous company !!!!!";
         let input2 = b"test";
@@ -318,8 +320,8 @@ mod tests {
         a2b.flush().await?;
         log::info!("Waiting for stream");
 
-        let b2a = socket_b.get_or_create_stream(a2b.id(), socket_a.local_addr()?)
-            .await;
+        let b2a = socket_b.get_or_create_stream(a2b.id(), socket_a.local_addr())
+            .await?;
 
         let mut output = BytesMut::zeroed(input.len());
         let _ = tokio::time::timeout(
@@ -366,10 +368,10 @@ mod tests {
             }
         });
 
-        let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr()?)
-            .await;
-        let b2a = socket_b.get_or_create_stream(a2b.id(), socket_a.local_addr()?)
-            .await;
+        let a2b = socket_a.get_or_create_stream(10, socket_b.local_addr())
+            .await?;
+        let b2a = socket_b.get_or_create_stream(a2b.id(), socket_a.local_addr())
+            .await?;
 
         let b2a_input = b"Hi again you !";
         let a2b_input = b"I think this works very well !";
@@ -414,12 +416,12 @@ mod tests {
         let local_socket_a = LocalSocket::new(&all, 0, 0, 0.);
         let (socket_a, mut driver_a) =
             Socket::<LocalStrategy<32>>::new(local_socket_a);
-        let addr_a = socket_a.local_addr()?;
+        let addr_a = socket_a.local_addr();
 
         let local_socket_b = LocalSocket::new(&all, 1, 0, 0.);
         let (socket_b, mut driver_b) =
             Socket::<LocalStrategy<32>>::new(local_socket_b);
-        let addr_b = socket_b.local_addr()?;
+        let addr_b = socket_b.local_addr();
 
         async fn send_and_check(
             s: &Arc<Socket<LocalStrategy<32>>>,
@@ -434,7 +436,7 @@ mod tests {
                 d.drive(),
             ).await?? {
                 assert_eq!(&data[..], &bytes[..]);
-                assert_eq!(from, s.local_addr()?);
+                assert_eq!(from, s.local_addr());
             }
             else {
                 panic!("Not a message");

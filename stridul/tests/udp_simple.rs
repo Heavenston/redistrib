@@ -95,7 +95,7 @@ async fn run<Strat: stridul::Strategy<Socket = UdpSocket, PeersAddr = SocketAddr
             let (socket, mut socket_driver) = stridul::Socket::<Strat>::new(
                 UdpSocket::bind("127.0.0.1:0").await?
             );
-            log::info!("Socket {i} has addr {}", socket.local_addr()?);
+            log::info!("Socket {i} has addr {}", socket.local_addr());
             drivers_joinset.spawn(async move {
                 loop {
                     socket_driver.drive().await.unwrap();
@@ -113,8 +113,8 @@ async fn run<Strat: stridul::Strategy<Socket = UdpSocket, PeersAddr = SocketAddr
                 let from = Arc::clone(&sockets[s.from]);
                 let to = Arc::clone(&sockets[s.to]);
 
-                let from_to = from.get_or_create_stream(s.stream_id, to.local_addr()?).await;
-                let to_from = to.get_or_create_stream(s.stream_id, from.local_addr()?).await;
+                let from_to = from.get_or_create_stream(s.stream_id, to.local_addr()).await?;
+                let to_from = to.get_or_create_stream(s.stream_id, from.local_addr()).await?;
 
                 let sent = (0..s.size.div_ceil(32))
                     .flat_map(|_| rng.gen::<[u8; 32]>())
@@ -360,11 +360,11 @@ async fn udp_messages() -> anyhow::Result<()> {
     let (socket_a, mut driver_a) = stridul::Socket::<MyUDPStrategy>::new(
         UdpSocket::bind("127.0.0.1:0").await?
     );
-    let addr_a = socket_a.local_addr()?;
+    let addr_a = socket_a.local_addr();
     let (socket_b, mut driver_b) = stridul::Socket::<MyUDPStrategy>::new(
         UdpSocket::bind("127.0.0.1:0").await?
     );
-    let addr_b = socket_b.local_addr()?;
+    let addr_b = socket_b.local_addr();
 
     async fn send_and_check<Strat: stridul::Strategy>(
         s: &Arc<stridul::Socket<Strat>>,
@@ -379,7 +379,7 @@ async fn udp_messages() -> anyhow::Result<()> {
             d.drive(),
         ).await?? {
             assert_eq!(&data[..], &bytes[..]);
-            assert_eq!(from, s.local_addr()?);
+            assert_eq!(from, s.local_addr());
         }
         else {
             panic!("Not a message");

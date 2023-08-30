@@ -121,7 +121,7 @@ impl<Strat: Strategy> Stream<Strat> {
         let is_there_data = received.contiguous_len() > 0;
         let remaining_cap: u32 =
             received.remaining_capacity().try_into().unwrap();
-        log::trace!("[{:?}][{}] Recevied {}, {}", self.socket.local_addr()?, self.id, pack, received);
+        log::trace!("[{:?}][{}] Recevied {}, {}", self.socket.local_addr(), self.id, pack, received);
         drop(received);
 
         match slt {

@@ -34,6 +34,8 @@ impl<Strat: Strategy> Display for InFlightPacket<Strat> {
 pub enum CreateStreamError<Strat: Strategy> {
     #[error("A Stream already exists with the same id and peer addr")]
     AlreadyCreated(#[derivative(Debug="ignore")] Arc<Stream<Strat>>),
+    #[error(transparent)]
+    Other(#[from] Error),
 }
 
 #[derive(Debug)]
@@ -42,6 +44,8 @@ pub struct Socket<Strat: Strategy> {
 
     async_packet_send_request_send: mpsc::Sender<(Strat::PeersAddr, Packet)>,
     packets_in_flight_send: mpsc::Sender<InFlightPacket<Strat>>,
+    loopback_messages_send: mpsc::Sender<Packet>,
+
     created_streams: FlumePipe<(
         Arc<Stream<Strat>>, oneshot::Sender<Result<(), CreateStreamError<Strat>>>
     )>,
@@ -57,12 +61,17 @@ impl<Strat: Strategy> Socket<Strat> {
         let (
             async_packet_send_request_send, async_packet_send_request_recv,
         ) = mpsc::channel(1024);
+        let (
+            loopback_messages_send, loopback_messages_recv,
+        ) = mpsc::channel(2048);
 
         let this = Arc::new(Self {
             socket,
 
             async_packet_send_request_send,
             packets_in_flight_send,
+            loopback_messages_send,
+
             created_streams: flume::unbounded(),
         });
         let driver = SocketDriver {
@@ -70,6 +79,7 @@ impl<Strat: Strategy> Socket<Strat> {
 
             async_packet_send_request_recv,
             packets_in_flight_recv,
+            loopback_messages_recv,
 
             streams: default(),
             packets_in_flight: default(),
@@ -78,8 +88,8 @@ impl<Strat: Strategy> Socket<Strat> {
         (this, driver)
     }
 
-    pub fn local_addr(&self) -> Result<Strat::PeersAddr, Error> {
-        Ok(self.socket.local_addr()?)
+    pub fn local_addr(&self) -> Strat::PeersAddr {
+        self.socket.local_addr()
     }
 
     pub async fn create_stream(
@@ -89,15 +99,17 @@ impl<Strat: Strategy> Socket<Strat> {
         let stream = Stream::new(
             id, peer_addr, Arc::clone(self)
         );
-        let _ = self.created_streams.0.send((Arc::clone(&stream), rs_send));
+        self.created_streams.0.send((Arc::clone(&stream), rs_send))
+            .map_err(|_| Error::DriverDropped)?;
         rs_recv.await.unwrap().map(move |_| stream)
     }
 
     pub async fn get_or_create_stream(
         self: &Arc<Self>, id: StreamID, peer_addr: Strat::PeersAddr,
-    ) -> Arc<Stream<Strat>> {
+    ) -> Result<Arc<Stream<Strat>>, Error> {
         match self.create_stream(id, peer_addr).await {
-            Ok(s) | Err(CreateStreamError::AlreadyCreated(s)) => s,
+            Ok(s) | Err(CreateStreamError::AlreadyCreated(s)) => Ok(s),
+            Err(CreateStreamError::Other(e)) => Err(e),
         }
     }
 
@@ -118,7 +130,13 @@ impl<Strat: Strategy> Socket<Strat> {
             });
         }
 
-        log::trace!("[{:?}] > {} to {:?}", self.socket.local_addr()?, packet, dest);
+        log::trace!("[{:?}] > {} to {:?}", self.socket.local_addr(), packet, dest);
+
+        if dest == &self.local_addr() {
+            self.loopback_messages_send.send(packet.clone()).await
+                .map_err(|_| Error::DriverDropped)?;
+            return Ok(());
+        }
 
         // FIXPERF: Memory pool to not alocation each time
         let mut data = BytesMut::new();
@@ -151,7 +169,7 @@ impl<Strat: Strategy> Socket<Strat> {
     ) -> bool {
         log::trace!(
             "[{:?}] > {} asyncly to {:?}",
-            self.socket.local_addr().unwrap(), packet, dest
+            self.socket.local_addr(), packet, dest
         );
         self.async_packet_send_request_send.try_send((dest, packet)).is_ok()
     }
@@ -208,6 +226,7 @@ pub struct SocketDriver<Strat: Strategy> {
 
     async_packet_send_request_recv: mpsc::Receiver<(Strat::PeersAddr, Packet)>,
     packets_in_flight_recv: mpsc::Receiver<InFlightPacket<Strat>>,
+    loopback_messages_recv: mpsc::Receiver<Packet>,
 
     /// The list of all packets that has not been acknoledged yet
     /// Sorted from oldest to newest
@@ -279,12 +298,13 @@ impl<Strat: Strategy> SocketDriver<Strat> {
                     match streams.get(&stream.id()) {
                         None => {
                             streams.insert(stream.id(), stream);
-                            let _ = rslt_send.send(Ok(()));
+                            rslt_send.send(Ok(()))
+                                .expect("Socket has been dropped");
                         }
                         Some(s) => {
-                            let _ = rslt_send.send(Err(
+                            rslt_send.send(Err(
                                 CreateStreamError::AlreadyCreated(Arc::clone(s))
-                            ));
+                            )).expect("Socket has been dropped");
                         }
                     }
                 }
@@ -294,7 +314,7 @@ impl<Strat: Strategy> SocketDriver<Strat> {
                 }
 
                 Some(p) = self.packets_in_flight_recv.recv() => {
-                    log::trace!("[{:?}] In flight: {p}", self.socket.local_addr()?);
+                    log::trace!("[{:?}] In flight: {p}", self.socket.local_addr());
                     self.packets_in_flight.push(p);
                 }
                 
@@ -348,7 +368,14 @@ impl<Strat: Strategy> SocketDriver<Strat> {
                         }
                     };
 
-                    match self.packet(addr, packet).await? {
+                    match self.drive_packet(addr, packet).await? {
+                        ControlFlow::Continue(()) => (),
+                        ControlFlow::Break(b) => return Ok(b),
+                    }
+                }
+
+                Some(lp) = self.loopback_messages_recv.recv() => {
+                    match self.drive_packet(self.socket.local_addr(), lp).await? {
                         ControlFlow::Continue(()) => (),
                         ControlFlow::Break(b) => return Ok(b),
                     }
@@ -357,6 +384,8 @@ impl<Strat: Strategy> SocketDriver<Strat> {
         }
     }
 
+    /// Removes all packets in Self::packets_in_flight that are older than
+    /// Strat::PACKET_TIMEOUT
     fn remove_timedout_packets(&mut self) {
         let mut i = 0;
         while i < self.packets_in_flight.len() {
@@ -373,93 +402,109 @@ impl<Strat: Strategy> SocketDriver<Strat> {
         }
     }
 
-    async fn packet(
+    async fn drive_packet(
         &mut self, addr: Strat::PeersAddr, packet: Packet,
     ) -> Result<ControlFlow<DrivingEvent<Strat>>, Error> {
-        log::trace!("[{:?}] < {} from {:?}", self.socket.local_addr()?, packet, addr);
+        log::trace!("[{:?}] < {} from {:?}", self.socket.local_addr(), packet, addr);
         match packet {
-            Packet::Ack(pack) => {
-                // Get the stream of the acked packet to notify it of the
-                // acknoledgment
-                let stream = self.streams.get(&addr)
-                    .and_then(|sts| sts.get(&pack.acked_id.stream_id));
-                if let Some(stream) = stream {
-                    stream.handle_ack_pack(pack).await?;
+            Packet::Ack(pack) => self.drive_ack_pack(addr, pack).await,
+            Packet::Data(pack) => self.drive_data_pack(addr, pack).await,
+            Packet::Message(pack) => self.drive_message_pack(addr, pack).await,
+        }
+    }
 
-                    if pack.window_size == 0 {
-                        let dwgrd = Arc::downgrade(stream);
-                        let is_in = self.streams_with_window_0.iter()
-                            .any(|(s, _)| s.ptr_eq(&dwgrd));
-                        if !is_in {
-                            self.streams_with_window_0.push(
-                                (Arc::downgrade(stream), Instant::now())
-                            );
-                        }
-                    }
+    async fn drive_ack_pack(
+        &mut self, addr: Strat::PeersAddr, pack: AckPack,
+    ) -> Result<ControlFlow<DrivingEvent<Strat>>, Error> {
+        // 1. Notify the correct stream of the ack
+
+        let stream = self.streams.get(&addr)
+            .and_then(|sts| sts.get(&pack.acked_id.stream_id));
+        if let Some(stream) = stream {
+            let () = stream.handle_ack_pack(pack).await?;
+
+            // With a window_size of 0 we add the stream to a list to
+            // make sure the window gets opened back out in the future
+            if pack.window_size == 0 {
+                let dwgrd = Arc::downgrade(stream);
+                let is_in = self.streams_with_window_0.iter()
+                    .any(|(s, _)| s.ptr_eq(&dwgrd));
+                if !is_in {
+                    self.streams_with_window_0.push(
+                        (Arc::downgrade(stream), Instant::now())
+                    );
                 }
+            }
+        }
 
-                let Some((flying_packet_pos, flying_packet)) =
-                    self.packets_in_flight.iter().enumerate()
-                    .filter(|(_, x)| x.addr == addr)
-                    .find(|(_, x)| x.packet.id.with_rt(0) == pack.acked_id.with_rt(0))
-                    else {
-                        return Ok(ControlFlow::Continue(()));
-                    };
-                log::trace!("[{:?}] Forgetting {flying_packet}", self.socket.local_addr()?);
-                // Remove the packet from the pending-ack list
-                let flying_packet =
-                    self.packets_in_flight.remove(flying_packet_pos);
+        // 2. Find the packet that this ack is refering to and remove it from
+        //    the pending list
 
-                if !flying_packet.ack_send.is_closed() {
-                    flying_packet.ack_send.send(()).unwrap();
-                }
-            },
-            Packet::Data(pack) => {
-                let (is_new_stream, stream) = self.streams.get(&addr)
-                    .and_then(|addr_streams|
-                        addr_streams
-                            .get(&pack.id.stream_id).cloned()
-                            .map(|s| (false, s))
-                    ).unwrap_or_else(|| {
-                        let stream = Stream::new(
-                            pack.id.stream_id,
-                            addr.clone(),
-                            Arc::clone(&self.socket)
-                        );
+        let Some((flying_packet_pos, flying_packet)) =
+            self.packets_in_flight.iter().enumerate()
+            .filter(|(_, x)| x.addr == addr)
+            .find(|(_, x)| x.packet.id.with_rt(0) == pack.acked_id.with_rt(0))
+            else {
+                return Ok(ControlFlow::Continue(()));
+            };
+        log::trace!("[{:?}] Forgetting {flying_packet}", self.socket.local_addr());
+        let flying_packet =
+            self.packets_in_flight.remove(flying_packet_pos);
 
-                        let addr_streams = self.streams.entry(addr.clone())
-                            .or_default();
-                        addr_streams.insert(pack.id.stream_id, Arc::clone(&stream));
-
-                        (true, stream)
-                    });
-
-                let id = pack.id;
-                let accepted = stream.handle_data_pack(pack).await?;
-
-                if let Some(window_size) = accepted {
-                    self.socket.send_raw(&addr, &AckPack {
-                        acked_id: id,
-                        window_size
-                    }.into()).await?;
-                }
-
-                if accepted.is_none() || !is_new_stream {
-                    return Ok(ControlFlow::Continue(()));
-                }
-
-                return Ok(ControlFlow::Break(DrivingEvent::NewStream {
-                    stream
-                }));
-            },
-            Packet::Message(MessagePack { data }) => {
-                return Ok(ControlFlow::Break(DrivingEvent::Message {
-                    data,
-                    from: addr,
-                }));
-            },
+        if !flying_packet.ack_send.is_closed() {
+            flying_packet.ack_send.send(()).unwrap();
         }
 
         Ok(ControlFlow::Continue(()))
+    }
+
+    async fn drive_data_pack(
+        &mut self, addr: Strat::PeersAddr, pack: DataPack,
+    ) -> Result<ControlFlow<DrivingEvent<Strat>>, Error> {
+        let (is_new_stream, stream) = self.streams.get(&addr)
+            .and_then(|addr_streams|
+                addr_streams
+                    .get(&pack.id.stream_id).cloned()
+                    .map(|s| (false, s))
+            ).unwrap_or_else(|| {
+                let stream = Stream::new(
+                    pack.id.stream_id,
+                    addr.clone(),
+                    Arc::clone(&self.socket)
+                );
+
+                let addr_streams = self.streams.entry(addr.clone())
+                    .or_default();
+                addr_streams.insert(pack.id.stream_id, Arc::clone(&stream));
+
+                (true, stream)
+            });
+
+        let id = pack.id;
+        let accepted = stream.handle_data_pack(pack).await?;
+
+        if let Some(window_size) = accepted {
+            self.socket.send_raw(&addr, &AckPack {
+                acked_id: id,
+                window_size
+            }.into()).await?;
+        }
+
+        if accepted.is_none() || !is_new_stream {
+            return Ok(ControlFlow::Continue(()));
+        }
+
+        Ok(ControlFlow::Break(DrivingEvent::NewStream {
+            stream
+        }))
+    }
+
+    async fn drive_message_pack(
+        &mut self, addr: Strat::PeersAddr, pack: MessagePack,
+    ) -> Result<ControlFlow<DrivingEvent<Strat>>, Error> {
+        Ok(ControlFlow::Break(DrivingEvent::Message {
+            data: pack.data,
+            from: addr,
+        }))
     }
 }
