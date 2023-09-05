@@ -1,6 +1,6 @@
 use crate::*;
 
-use std::{sync::{Arc, Mutex, atomic::{AtomicU32, self}}, pin::Pin, task::Poll};
+use std::{sync::{Arc, Mutex, atomic::{AtomicU32, self}}, pin::Pin, task::{Poll, self}};
 use std::future::Future;
 
 use bytes::{BytesMut, BufMut};
@@ -214,15 +214,15 @@ impl<Strat: Strategy> Stream<Strat> {
         written
     }
 
-    pub async fn read(&self, into: &mut impl BufMut) -> usize {
-        if !into.has_remaining_mut()
-        { return 0; }
-
-        let mut r;
-        while { r = self.try_read(into); r } == 0 {
-            self.readable_notify.notified().await;
-        }
-        return r;
+    pub fn read<'a, B: BufMut>(
+        &'a self, output: &'a mut B,
+    ) -> StreamReadFuture<'a, B, Strat> {
+        return StreamReadFuture {
+            stream: self,
+            output,
+            read: 0,
+            notified: Box::pin(self.readable_notify.notified()),
+        };
     }
 
     pub async fn write(
@@ -242,6 +242,35 @@ impl<Strat: Strategy> Stream<Strat> {
 
     pub fn writer<'a>(&'a self) -> StreamWriter<'a, Strat> {
         StreamWriter::new(self)
+    }
+}
+
+pub struct StreamReadFuture<'a, B: BufMut, Strat: Strategy> {
+    stream: &'a Stream<Strat>,
+    output: &'a mut B,
+    read: usize,
+    notified: Pin<Box<Notified<'a>>>,
+}
+
+impl<'a, B: BufMut, Strat: Strategy> Future for StreamReadFuture<'a, B, Strat> {
+    type Output = usize;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+        if !self.output.has_remaining_mut()
+        { return Poll::Ready(0); }
+
+        let read = self.stream.try_read(self.output);
+        while read == 0 {
+            match self.as_mut().notified.as_mut().poll(cx) {
+                Poll::Ready(()) => (),
+                Poll::Pending => return Poll::Pending,
+            }
+            // Replace the old notify future that is now useless
+            // with a new one, reregistering to wait for data
+            self.as_mut().notified = Box::pin(self.stream.readable_notify.notified());
+        }
+
+        Poll::Ready(read)
     }
 }
 
