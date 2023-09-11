@@ -214,8 +214,8 @@ impl<Strat: Strategy> Stream<Strat> {
         written
     }
 
-    pub fn read<'a, B: BufMut>(
-        &'a self, output: &'a mut B,
+    pub fn read<'a, B: 'a + BufMut>(
+        &'a self, output: B,
     ) -> StreamReadFuture<'a, B, Strat> {
         return StreamReadFuture {
             stream: self,
@@ -247,27 +247,32 @@ impl<Strat: Strategy> Stream<Strat> {
 
 pub struct StreamReadFuture<'a, B: BufMut, Strat: Strategy> {
     stream: &'a Stream<Strat>,
-    output: &'a mut B,
+    output: B,
     read: usize,
     notified: Pin<Box<Notified<'a>>>,
 }
 
-impl<'a, B: BufMut, Strat: Strategy> Future for StreamReadFuture<'a, B, Strat> {
+impl<'a, B: BufMut, Strat: Strategy> Future for StreamReadFuture<'a, B, Strat> 
+where
+    Self: Unpin
+{
     type Output = usize;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
         if !self.output.has_remaining_mut()
         { return Poll::Ready(0); }
 
-        let read = self.stream.try_read(self.output);
+        let this = self.get_mut();
+
+        let read = this.stream.try_read(&mut this.output);
         while read == 0 {
-            match self.as_mut().notified.as_mut().poll(cx) {
+            match this.notified.as_mut().poll(cx) {
                 Poll::Ready(()) => (),
                 Poll::Pending => return Poll::Pending,
             }
             // Replace the old notify future that is now useless
             // with a new one, reregistering to wait for data
-            self.as_mut().notified = Box::pin(self.stream.readable_notify.notified());
+            this.notified = Box::pin(this.stream.readable_notify.notified());
         }
 
         Poll::Ready(read)
