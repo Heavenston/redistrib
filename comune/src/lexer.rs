@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
     #[error("Invalid character at {row}:{col}")]
     UnexpectedCharError {
@@ -51,6 +51,7 @@ pub enum TokenType {
     Dash,
     Star,
     Hash,
+    Equal,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -64,6 +65,7 @@ pub struct Token<'a> {
 const ID_CHARS_START: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
 const ID_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$";
 
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Tokens<'a> {
     source: &'a str,
     chs: usize,
@@ -72,6 +74,15 @@ pub struct Tokens<'a> {
 }
 
 impl<'a> Tokens<'a> {
+    pub fn new(src: &'a str) -> Self {
+        Self {
+            source: src,
+            chs: 0,
+            col: 0,
+            row: 0,
+        }
+    }
+
     fn peek_char(&mut self) -> Option<char> {
         self.source.chars().next()
     }
@@ -179,6 +190,7 @@ impl<'a> Tokens<'a> {
             Some('-') => Ok(TokenType::Dash),
             Some('*') => Ok(TokenType::Star),
             Some('#') => Ok(TokenType::Hash),
+            Some('=') => Ok(TokenType::Equal),
 
             c => Err(LexerError::UnexpectedCharError {
                 row: self.row,
@@ -201,6 +213,8 @@ impl<'a> Iterator for Tokens<'a> {
 
         let start_chs = self.chs;
         let start_str = self.source;
+        let row = self.row;
+        let col = self.col;
 
         let kind = match ch {
             _ if ID_CHARS_START.contains(ch) => self.read_id(),
@@ -218,8 +232,122 @@ impl<'a> Iterator for Tokens<'a> {
         Some(Ok(Token {
             kind,
             content,
-            row: self.row,
-            col: self.col,
+            row,
+            col,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn simple() {
+        const SRC: &str = "machine -*+-\\ test-test
+data on state = 123456 + 031.4
+        ";
+
+        for t in Tokens::new(SRC) {
+            println!("{t:?}");
+        }
+
+        let mut tokens = Tokens::new(SRC);
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Machine,
+            content: "machine".into(),
+            row: 0,
+            col: 0
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Dash,
+            content: "-".into(),
+            row: 0,
+            col: 8
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Star,
+            content: "*".into(),
+            row: 0,
+            col: 9
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Plus,
+            content: "+".into(),
+            row: 0,
+            col: 10
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Dash,
+            content: "-".into(),
+            row: 0,
+            col: 11
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::BSlash,
+            content: "\\".into(),
+            row: 0,
+            col: 12
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Iden,
+            content: "test".into(),
+            row: 0,
+            col: 14
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Dash,
+            content: "-".into(),
+            row: 0,
+            col: 18
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Iden,
+            content: "test".into(),
+            row: 0,
+            col: 19
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Data,
+            content: "data".into(),
+            row: 1,
+            col: 0
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::On,
+            content: "on".into(),
+            row: 1,
+            col: 5
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::State,
+            content: "state".into(),
+            row: 1,
+            col: 8
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Equal,
+            content: "=".into(),
+            row: 1,
+            col: 14
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::DecimalLiteral,
+            content: "123456".into(),
+            row: 1,
+            col: 16
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::Plus,
+            content: "+".into(),
+            row: 1,
+            col: 23
+        })));
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::DecimalLiteral,
+            content: "031.4".into(),
+            row: 1,
+            col: 25
+        })));
     }
 }
