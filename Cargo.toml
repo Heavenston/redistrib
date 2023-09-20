@@ -12,4 +12,5 @@ resolver = "2"
 members = [
   "stridul",
   "cobweb",
+  "comune",
 ]
