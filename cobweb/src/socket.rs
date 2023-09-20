@@ -1,14 +1,15 @@
 use std::{net::SocketAddr, sync::{Arc, Weak}, task, pin::Pin};
 
-use bytes::BytesMut;
-use futures::Stream;
-use tokio::{net::UdpSocket, sync::broadcast, io::{AsyncRead, ReadBuf}};
+use bytes::{BytesMut, BufMut};
+use futures::{Stream, Sink};
+use tokio::{net::UdpSocket, sync::broadcast, io::{AsyncRead, ReadBuf, AsyncWrite}};
 use tokio_util::io::poll_read_buf;
+use rand::prelude::*;
 
 use crate::packet::Packet;
 
 #[derive(Debug, Clone)]
-struct CobwebStridulStrategy;
+pub struct CobwebStridulStrategy;
 impl stridul::Strategy for CobwebStridulStrategy {
     type Socket = UdpSocket;
     type PeersAddr = SocketAddr;
@@ -19,12 +20,12 @@ impl stridul::Strategy for CobwebStridulStrategy {
     const BUFFER_MAX_SIZE: usize = stridul::DefaultUDPStrategy::BUFFER_MAX_SIZE;
 }
 
-type SStream = stridul::Stream<CobwebStridulStrategy>;
-type SSocket = stridul::Socket<CobwebStridulStrategy>;
-type SDriver = stridul::SocketDriver<CobwebStridulStrategy>;
+pub type SStream = stridul::Stream<CobwebStridulStrategy>;
+pub type SSocket = stridul::Socket<CobwebStridulStrategy>;
+pub type SDriver = stridul::SocketDriver<CobwebStridulStrategy>;
 
 #[derive(Debug, Clone)]
-pub(crate) enum SocketDriveEvent {
+pub enum SocketDriveEvent {
     Message {
         from: SocketAddr,
         packet: Arc<Packet>,
@@ -61,6 +62,35 @@ impl Socket {
         Self {
             shared,
         }
+    }
+
+    pub async fn next_event() {
+
+    }
+
+    pub async fn send_message(
+        &self, to: SocketAddr, packet: &Packet,
+    ) -> anyhow::Result<()> {
+        let mut bytes = BytesMut::new();
+
+        bincode::serialize_into((&mut bytes).writer(), packet);
+
+        self.shared.ssocket.send_message(to, bytes.freeze())
+            .await;
+
+        Ok(())
+    }
+
+    pub async fn stream_to(
+        &self, to: SocketAddr
+    ) -> anyhow::Result<PacketStream> {
+        let id = rand::thread_rng().gen();
+
+        let stream = self.shared.ssocket.get_or_create_stream(id, to)
+            .await?;
+        let stream = PacketStream::create(stream);
+
+        Ok(stream)
     }
 }
 
@@ -100,14 +130,19 @@ async fn driver_task(
     Ok(())
 }
 
+// Put in cobweb as util (With socket ?)
 #[ouroboros::self_referencing]
 pub struct PacketStream {
     stream: Arc<SStream>,
     buffer: BytesMut,
+    send_buffer: BytesMut,
 
     #[borrows(stream)]
     #[covariant]
     read: stridul::StreamReader::<'this, CobwebStridulStrategy>,
+    #[borrows(stream)]
+    #[not_covariant]
+    write: stridul::StreamWriter::<'this, CobwebStridulStrategy>,
 }
 
 impl PacketStream {
@@ -115,7 +150,11 @@ impl PacketStream {
         PacketStreamBuilder {
             stream,
             buffer: BytesMut::with_capacity(4),
+
             read_builder: |stream| stream.reader(),
+            write_builder: |stream| stream.writer(),
+
+            send_buffer: BytesMut::new(),
         }.build()
     }
 }
@@ -127,7 +166,7 @@ impl Stream for PacketStream {
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>
     ) -> task::Poll<Option<Self::Item>> {
-        self.get_mut().with_mut(|mut fields| {
+        self.get_mut().with_mut(|fields| {
             let reader = fields.read;
             tokio::pin!(reader);
             let buffer = fields.buffer;
@@ -146,7 +185,7 @@ impl Stream for PacketStream {
             }
 
             while !finished(buffer) {
-                match poll_read_buf(reader, cx, buffer) {
+                match poll_read_buf(reader.as_mut(), cx, buffer) {
                     task::Poll::Ready(Ok(_)) => (),
                     task::Poll::Ready(Err(e)) => return task::Poll::Ready(
                         Some(Err(e.into()))
@@ -167,5 +206,73 @@ impl Stream for PacketStream {
 
             task::Poll::Ready(Some(Ok(Arc::new(p))))
         })
+    }
+}
+
+impl Sink<Packet> for PacketStream {
+    type Error = anyhow::Error;
+
+    fn poll_ready(
+        self: Pin<&mut Self>, _cx: &mut task::Context<'_>
+    ) -> task::Poll<Result<(), Self::Error>> {
+        // FIXME: Snould it wait for something ?
+        task::Poll::Ready(Ok(()))
+    }
+
+    fn start_send(
+        self: Pin<&mut Self>, item: Packet
+    ) -> Result<(), Self::Error> {
+        self.get_mut().with_mut(|fields| {
+            let sb = fields.send_buffer;
+
+            let size_start = sb.len();
+            sb.extend_from_slice(&[0; 4]);
+            let content_start = sb.len();
+
+            bincode::serialize_into(sb.writer(), &item)?;
+
+            let size: u32 = (content_start - sb.len()).try_into().unwrap();
+            sb[size_start..size_start + 4].copy_from_slice(
+                &size.to_be_bytes()
+            );
+
+            Ok(())
+        })
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>, cx: &mut task::Context<'_>
+    ) -> task::Poll<Result<(), Self::Error>> {
+        while self.borrow_send_buffer().len() > 0 {
+            let g = self.as_mut().with_mut(|fields| {
+                let sb = fields.send_buffer;
+                let write = fields.write;
+                tokio::pin!(write);
+
+                let written = match write.poll_write(cx, sb)? {
+                    task::Poll::Ready(w) => w,
+                    task::Poll::Pending => return task::Poll::Pending,
+                };
+
+                // Remove the written bytes
+                sb.copy_within(written.., 0);
+                sb.truncate(sb.len() - written);
+
+                task::Poll::Ready(Ok(()))
+            });
+
+            match g {
+                task::Poll::Ready(Ok(())) => (),
+                x => return x,
+            }
+        }
+
+        task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>, cx: &mut task::Context<'_>
+    ) -> task::Poll<Result<(), Self::Error>> {
+        self.poll_flush(cx)
     }
 }
