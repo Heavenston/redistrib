@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, sync::Arc, fmt::Display};
 
 #[derive(PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
@@ -60,6 +60,56 @@ pub enum TokenType {
     Dash,
     Star,
     Equal,
+}
+
+impl Display for TokenType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use TokenType as T;
+        match self {
+            T::Machine => write!(f, "'machine'"),
+            T::Initial => write!(f, "'initial'"),
+            T::State => write!(f, "'state'"),
+            T::Data => write!(f, "'data'"),
+            T::On => write!(f, "'on'"),
+            T::Iden => write!(f, "<identifier>"),
+            T::If => write!(f, "'if'"),
+            T::Else => write!(f, "'else'"),
+            T::While => write!(f, "'while'"),
+            T::True => write!(f, "'true'"),
+            T::False => write!(f, "'false'"),
+            T::DecimalLiteral => write!(f, "<number>"),
+            T::StringLiteral(_) => write!(f, "<string>"),
+            T::LineComment => write!(f, "<comment>"),
+            T::BlockComment => write!(f, "<block_comment>"),
+            T::ThinArrow => write!(f, "'->'"),
+            T::FatArrow => write!(f, "'=>'"),
+            T::VBar => write!(f, "'|'"),
+            T::DoubleVBar => write!(f, "'||'"),
+            T::FSlash => write!(f, "'/'"),
+            T::BSlash => write!(f, "'\\'"),
+            T::CurlyOpen => write!(f, "'{{'"),
+            T::CurlyClose => write!(f, "'}}'"),
+            T::ParenOpen => write!(f, "'('"),
+            T::ParenClose => write!(f, "')'"),
+            T::BracketOpen => write!(f, "'['"),
+            T::BracketClose => write!(f, "']'"),
+            T::CaretOpen => write!(f, "'<'"),
+            T::CaretClose => write!(f, "'>'"),
+            T::Colon => write!(f, "','"),
+            T::SemiColon => write!(f, "';'"),
+            T::Quote => write!(f, "'"),
+            T::DoubleQuote => write!(f, "'\"'"),
+            T::And => write!(f, "'&'"),
+            T::DoubleAnd => write!(f, "'&&'"),
+            T::Bang => write!(f, "'!'"),
+            T::QuestionMark => write!(f, "'?'"),
+            T::Dot => write!(f, "'.'"),
+            T::Plus => write!(f, "'+'"),
+            T::Dash => write!(f, "'-'"),
+            T::Star => write!(f, "'*'"),
+            T::Equal => write!(f, "'='"),
+        }
+    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
