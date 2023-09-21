@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
 #[derive(PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
@@ -27,6 +27,10 @@ pub enum TokenType {
     True,
     False,
     DecimalLiteral,
+    StringLiteral(Arc<str>),
+
+    LineComment,
+    BlockComment,
 
     VBar,
     DoubleVBar,
@@ -50,7 +54,6 @@ pub enum TokenType {
     Plus,
     Dash,
     Star,
-    Hash,
     Equal,
 }
 
@@ -161,6 +164,62 @@ impl<'a> Tokens<'a> {
         Ok(TokenType::DecimalLiteral)
     }
 
+    fn read_escape(&mut self) -> Option<char> {
+        assert_eq!(self.take_char(), Some('\\'));
+        let new = self.take_char()?;
+        Some(match new {
+            '0' => '\0',
+            'n' => '\n',
+            _ => new,
+        })
+    }
+
+    fn read_string(&mut self) -> Result<TokenType, LexerError> {
+        assert_eq!(self.take_char(), Some('"'));
+
+        let mut s = String::new();
+        loop {
+            // Some branches need the char to not be taken
+            match self.peek_char() {
+                None => {
+                    self.take_char();
+                    break;
+                },
+                Some('"') => {
+                    self.take_char();
+                    break;
+                },
+                Some('\\') => match self.read_escape() {
+                    Some(c) => s.push(c),
+                    None => break,
+                }
+                Some(c) => {
+                    self.take_char();
+                    s.push(c);
+                },
+            }
+        }
+
+        Ok(TokenType::StringLiteral(s.into()))
+    }
+
+    fn read_comment(&mut self) -> TokenType {
+        assert_eq!(self.take_char(), Some('#'));
+        if self.peek_char() == Some('[') {
+            self.take_chars_while(|c, this| !(
+                c == ']' && this.peek_char_n(1) == Some('#')
+            ));
+            assert_eq!(self.take_char(), Some(']'));
+            assert_eq!(self.take_char(), Some('#'));
+
+            TokenType::BlockComment
+        }
+        else {
+            self.take_chars_while(|c, _| c != '\n');
+            TokenType::LineComment
+        }
+    }
+    
     fn read_special(&mut self) -> Result<TokenType, LexerError> {
         match self.take_char() {
             Some('{') => Ok(TokenType::CurlyOpen),
@@ -189,7 +248,6 @@ impl<'a> Tokens<'a> {
             Some('+') => Ok(TokenType::Plus),
             Some('-') => Ok(TokenType::Dash),
             Some('*') => Ok(TokenType::Star),
-            Some('#') => Ok(TokenType::Hash),
             Some('=') => Ok(TokenType::Equal),
 
             c => Err(LexerError::UnexpectedCharError {
@@ -217,6 +275,8 @@ impl<'a> Iterator for Tokens<'a> {
         let col = self.col;
 
         let kind = match ch {
+            '#' => Ok(self.read_comment()),
+            '"' => self.read_string(),
             _ if ID_CHARS_START.contains(ch) => self.read_id(),
             _ if ch.is_digit(10) => self.read_decimal(),
             _ => self.read_special(),
@@ -245,6 +305,7 @@ mod tests {
     #[test]
     pub fn simple() {
         const SRC: &str = "machine -*+-\\ test-test
+# Bite
 data on state = 123456 + 031.4
         ";
 
@@ -307,46 +368,54 @@ data on state = 123456 + 031.4
             row: 0,
             col: 19
         })));
+
+        assert_eq!(tokens.next(), Some(Ok(Token {
+            kind: TokenType::LineComment,
+            content: "# Bite".into(),
+            row: 1,
+            col: 0
+        })));
+
         assert_eq!(tokens.next(), Some(Ok(Token {
             kind: TokenType::Data,
             content: "data".into(),
-            row: 1,
+            row: 2,
             col: 0
         })));
         assert_eq!(tokens.next(), Some(Ok(Token {
             kind: TokenType::On,
             content: "on".into(),
-            row: 1,
+            row: 2,
             col: 5
         })));
         assert_eq!(tokens.next(), Some(Ok(Token {
             kind: TokenType::State,
             content: "state".into(),
-            row: 1,
+            row: 2,
             col: 8
         })));
         assert_eq!(tokens.next(), Some(Ok(Token {
             kind: TokenType::Equal,
             content: "=".into(),
-            row: 1,
+            row: 2,
             col: 14
         })));
         assert_eq!(tokens.next(), Some(Ok(Token {
             kind: TokenType::DecimalLiteral,
             content: "123456".into(),
-            row: 1,
+            row: 2,
             col: 16
         })));
         assert_eq!(tokens.next(), Some(Ok(Token {
             kind: TokenType::Plus,
             content: "+".into(),
-            row: 1,
+            row: 2,
             col: 23
         })));
         assert_eq!(tokens.next(), Some(Ok(Token {
             kind: TokenType::DecimalLiteral,
             content: "031.4".into(),
-            row: 1,
+            row: 2,
             col: 25
         })));
     }
