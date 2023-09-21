@@ -32,6 +32,9 @@ pub enum TokenType {
     LineComment,
     BlockComment,
 
+    ThinArrow,
+    FatArrow,
+
     VBar,
     DoubleVBar,
     FSlash,
@@ -246,8 +249,10 @@ impl<'a> Tokens<'a> {
 
             Some('?') => Ok(TokenType::QuestionMark),
             Some('+') => Ok(TokenType::Plus),
+            Some('-') if self.take_char_if('>') => Ok(TokenType::ThinArrow),
             Some('-') => Ok(TokenType::Dash),
             Some('*') => Ok(TokenType::Star),
+            Some('=') if self.take_char_if('>') => Ok(TokenType::FatArrow),
             Some('=') => Ok(TokenType::Equal),
 
             c => Err(LexerError::UnexpectedCharError {
