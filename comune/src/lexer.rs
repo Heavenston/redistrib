@@ -124,14 +124,14 @@ const ID_CHARS_START: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX
 const ID_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$";
 
 #[derive(Debug, Hash, PartialEq, Eq)]
-pub struct Tokens<'a> {
+pub struct Tokenizer<'a> {
     source: &'a str,
     chs: usize,
     col: u32,
     row: u32,
 }
 
-impl<'a> Tokens<'a> {
+impl<'a> Tokenizer<'a> {
     pub fn new(src: &'a str) -> Self {
         Self {
             source: src,
@@ -318,7 +318,7 @@ impl<'a> Tokens<'a> {
     }
 }
 
-impl<'a> Iterator for Tokens<'a> {
+impl<'a> Iterator for Tokenizer<'a> {
     type Item = Result<Token<'a>, LexerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -357,6 +357,67 @@ impl<'a> Iterator for Tokens<'a> {
     }
 }
 
+pub struct TokenStream<'a> {
+    tokenizer: Tokenizer<'a>,
+    peeked: Vec<Token<'a>>,
+}
+
+impl<'a> TokenStream<'a> {
+    pub fn new(src: &'a str) -> Self {
+        Self {
+            tokenizer: Tokenizer::new(src),
+            peeked: Vec::new(),
+        }
+    }
+
+    pub fn get(&mut self) -> Result<Option<Token<'a>>, LexerError> {
+        self.next().transpose()
+    }
+
+    pub fn get_if<F>(&mut self, f: F) -> Result<bool, LexerError>
+        where F: FnOnce(Token<'a>) -> bool
+    {
+        if self.peek()?.is_some_and(f) {
+            self.get()?;
+            return Ok(true);
+        }
+        return Ok(false);
+    }
+
+    pub fn get_eq(&mut self, ty: TokenType) -> Result<bool, LexerError> {
+        self.get_if(|t| t.kind == ty)
+    }
+
+    pub fn peek_n(&mut self, n: usize) -> Result<Option<Token<'a>>, LexerError> {
+        while self.peeked.len() <= n {
+            self.peeked.push(match self.tokenizer.next() {
+                Some(Ok(t)) => t,
+                Some(Err(e)) => return Err(e),
+                None => return Ok(None),
+            });
+        }
+
+        Ok(Some(self.peeked[n]))
+    }
+
+    pub fn peek(&mut self) -> Result<Option<Token<'a>>, LexerError> {
+        self.peek_n(0)
+    }
+}
+
+impl<'a> Iterator for TokenStream<'a> {
+    type Item = Result<Token<'a>, LexerError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.peeked.len() > 0 {
+            Some(Ok(self.peeked.remove(0)))
+        }
+        else {
+            self.tokenizer.next()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,11 +429,11 @@ mod tests {
 data on state = 123456 + 031.4
         ";
 
-        for t in Tokens::new(SRC) {
+        for t in Tokenizer::new(SRC) {
             println!("{t:?}");
         }
 
-        let mut tokens = Tokens::new(SRC);
+        let mut tokens = Tokenizer::new(SRC);
         assert_eq!(tokens.next(), Some(Ok(Token {
             kind: TokenType::Machine,
             content: "machine".into(),
