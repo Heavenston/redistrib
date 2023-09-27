@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc, fmt::Display};
+use std::{borrow::Cow, fmt::Display, marker::ConstParamTy};
 
 #[derive(PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
@@ -10,13 +10,14 @@ pub enum LexerError {
     },
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(ConstParamTy, Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum TokenType {
     Machine,
     Initial,
     State,
     Data,
     On,
+    Mut,
 
     Iden,
 
@@ -27,7 +28,7 @@ pub enum TokenType {
     True,
     False,
     DecimalLiteral,
-    StringLiteral(Arc<str>),
+    StringLiteral,
 
     LineComment,
     BlockComment,
@@ -48,6 +49,7 @@ pub enum TokenType {
     CaretOpen,
     CaretClose,
     Colon,
+    Coma,
     SemiColon,
     Quote,
     DoubleQuote,
@@ -71,6 +73,8 @@ impl Display for TokenType {
             T::State => write!(f, "'state'"),
             T::Data => write!(f, "'data'"),
             T::On => write!(f, "'on'"),
+            T::Mut => write!(f, "'mut'"),
+
             T::Iden => write!(f, "<identifier>"),
             T::If => write!(f, "'if'"),
             T::Else => write!(f, "'else'"),
@@ -78,7 +82,7 @@ impl Display for TokenType {
             T::True => write!(f, "'true'"),
             T::False => write!(f, "'false'"),
             T::DecimalLiteral => write!(f, "<number>"),
-            T::StringLiteral(_) => write!(f, "<string>"),
+            T::StringLiteral => write!(f, "<string>"),
             T::LineComment => write!(f, "<comment>"),
             T::BlockComment => write!(f, "<block_comment>"),
             T::ThinArrow => write!(f, "'->'"),
@@ -95,7 +99,8 @@ impl Display for TokenType {
             T::BracketClose => write!(f, "']'"),
             T::CaretOpen => write!(f, "'<'"),
             T::CaretClose => write!(f, "'>'"),
-            T::Colon => write!(f, "','"),
+            T::Colon => write!(f, "':'"),
+            T::Coma => write!(f, "','"),
             T::SemiColon => write!(f, "';'"),
             T::Quote => write!(f, "'"),
             T::DoubleQuote => write!(f, "'\"'"),
@@ -118,6 +123,17 @@ pub struct Token<'a> {
     pub content: Cow<'a, str>,
     pub row: u32,
     pub col: u32,
+}
+
+impl<'a> Token<'a> {
+    pub fn to_static(&self) -> Token<'static> {
+        Token::<'static> {
+            kind: self.kind.clone(),
+            content: self.content.clone().into_owned().into(),
+            row: self.row,
+            col: self.col,
+        }
+    }
 }
 
 const ID_CHARS_START: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
@@ -197,6 +213,7 @@ impl<'a> Tokenizer<'a> {
             "state" => Ok(TokenType::State),
             "data" => Ok(TokenType::Data),
             "on" => Ok(TokenType::On),
+            "mut" => Ok(TokenType::Mut),
 
             "if" => Ok(TokenType::If),
             "else" => Ok(TokenType::Else),
@@ -232,7 +249,6 @@ impl<'a> Tokenizer<'a> {
     fn read_string(&mut self) -> Result<TokenType, LexerError> {
         assert_eq!(self.take_char(), Some('"'));
 
-        let mut s = String::new();
         loop {
             // Some branches need the char to not be taken
             match self.peek_char() {
@@ -245,17 +261,16 @@ impl<'a> Tokenizer<'a> {
                     break;
                 },
                 Some('\\') => match self.read_escape() {
-                    Some(c) => s.push(c),
                     None => break,
+                    _ => (),
                 }
-                Some(c) => {
+                Some(_) => {
                     self.take_char();
-                    s.push(c);
                 },
             }
         }
 
-        Ok(TokenType::StringLiteral(s.into()))
+        Ok(TokenType::StringLiteral)
     }
 
     fn read_comment(&mut self) -> TokenType {
@@ -288,8 +303,9 @@ impl<'a> Tokenizer<'a> {
             Some('/') => Ok(TokenType::FSlash),
             Some('\\') => Ok(TokenType::BSlash),
             Some('!') => Ok(TokenType::Bang),
-            Some(',') => Ok(TokenType::Colon),
+            Some(':') => Ok(TokenType::Colon),
             Some(';') => Ok(TokenType::SemiColon),
+            Some(',') => Ok(TokenType::Coma),
             Some('.') => Ok(TokenType::Dot),
 
             Some('|') if self.take_char_if('|') => Ok(TokenType::DoubleVBar),
@@ -370,38 +386,55 @@ impl<'a> TokenStream<'a> {
         }
     }
 
+    fn ignored_next(&mut self) -> Result<Option<Token<'a>>, LexerError> {
+        loop {
+            match self.tokenizer.next() {
+                Some(Ok(t)) if t.kind == TokenType::LineComment => (),
+                Some(Ok(t)) if t.kind == TokenType::BlockComment => (),
+                n => break n.transpose(),
+            }
+        }
+    }
+
     pub fn get(&mut self) -> Result<Option<Token<'a>>, LexerError> {
         self.next().transpose()
     }
 
-    pub fn get_if<F>(&mut self, f: F) -> Result<bool, LexerError>
-        where F: FnOnce(Token<'a>) -> bool
+    pub fn get_if<F>(&mut self, f: F) -> Result<Option<Token<'a>>, LexerError>
+        where F: FnOnce(&Token<'a>) -> bool
     {
         if self.peek()?.is_some_and(f) {
-            self.get()?;
-            return Ok(true);
+            return Ok(self.get()?);
         }
-        return Ok(false);
+        Ok(None)
     }
 
-    pub fn get_eq(&mut self, ty: TokenType) -> Result<bool, LexerError> {
+    pub fn get_eq(&mut self, ty: TokenType) -> Result<Option<Token<'a>>, LexerError> {
         self.get_if(|t| t.kind == ty)
     }
 
-    pub fn peek_n(&mut self, n: usize) -> Result<Option<Token<'a>>, LexerError> {
+    pub fn peek_n(&mut self, n: usize) -> Result<Option<&Token<'a>>, LexerError> {
         while self.peeked.len() <= n {
-            self.peeked.push(match self.tokenizer.next() {
-                Some(Ok(t)) => t,
-                Some(Err(e)) => return Err(e),
-                None => return Ok(None),
-            });
+            let t = match self.ignored_next() {
+                Ok(Some(t)) => t,
+                Ok(None) => return Ok(None),
+                Err(e) => return Err(e),
+            };
+            self.peeked.push(t);
         }
 
-        Ok(Some(self.peeked[n]))
+        Ok(Some(&self.peeked[n]))
     }
 
-    pub fn peek(&mut self) -> Result<Option<Token<'a>>, LexerError> {
+    pub fn peek(&mut self) -> Result<Option<&Token<'a>>, LexerError> {
         self.peek_n(0)
+    }
+
+    pub fn peek_eq(&mut self, ty: TokenType) -> Result<Option<&Token<'a>>, LexerError> {
+        match self.peek_n(0)? {
+            Some(s) if s.kind == ty => Ok(Some(s)),
+            _ => Ok(None),
+        }
     }
 }
 
@@ -413,7 +446,7 @@ impl<'a> Iterator for TokenStream<'a> {
             Some(Ok(self.peeked.remove(0)))
         }
         else {
-            self.tokenizer.next()
+            self.ignored_next().transpose()
         }
     }
 }
