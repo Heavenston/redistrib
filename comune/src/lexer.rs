@@ -10,131 +10,180 @@ pub enum LexerError {
     },
 }
 
-#[derive(ConstParamTy, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub enum TokenType {
-    Machine,
-    Initial,
-    State,
-    Data,
-    On,
-    Mut,
-
-    Iden,
-
-    If,
-    Else,
-    While,
-
-    True,
-    False,
-    DecimalLiteral,
-    StringLiteral,
-
-    LineComment,
-    BlockComment,
-
-    ThinArrow,
-    FatArrow,
-
-    VBar,
-    DoubleVBar,
-    FSlash,
-    BSlash,
-    CurlyOpen,
-    CurlyClose,
-    ParenOpen,
-    ParenClose,
-    BracketOpen,
-    BracketClose,
-    CaretOpen,
-    CaretClose,
-    Colon,
-    Coma,
-    SemiColon,
-    Quote,
-    DoubleQuote,
-    And,
-    DoubleAnd,
-    Bang,
-    QuestionMark,
-    Dot,
-    Plus,
-    Dash,
-    Star,
-    Equal,
-}
-
-impl Display for TokenType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use TokenType as T;
-        match self {
-            T::Machine => write!(f, "'machine'"),
-            T::Initial => write!(f, "'initial'"),
-            T::State => write!(f, "'state'"),
-            T::Data => write!(f, "'data'"),
-            T::On => write!(f, "'on'"),
-            T::Mut => write!(f, "'mut'"),
-
-            T::Iden => write!(f, "<identifier>"),
-            T::If => write!(f, "'if'"),
-            T::Else => write!(f, "'else'"),
-            T::While => write!(f, "'while'"),
-            T::True => write!(f, "'true'"),
-            T::False => write!(f, "'false'"),
-            T::DecimalLiteral => write!(f, "<number>"),
-            T::StringLiteral => write!(f, "<string>"),
-            T::LineComment => write!(f, "<comment>"),
-            T::BlockComment => write!(f, "<block_comment>"),
-            T::ThinArrow => write!(f, "'->'"),
-            T::FatArrow => write!(f, "'=>'"),
-            T::VBar => write!(f, "'|'"),
-            T::DoubleVBar => write!(f, "'||'"),
-            T::FSlash => write!(f, "'/'"),
-            T::BSlash => write!(f, "'\\'"),
-            T::CurlyOpen => write!(f, "'{{'"),
-            T::CurlyClose => write!(f, "'}}'"),
-            T::ParenOpen => write!(f, "'('"),
-            T::ParenClose => write!(f, "')'"),
-            T::BracketOpen => write!(f, "'['"),
-            T::BracketClose => write!(f, "']'"),
-            T::CaretOpen => write!(f, "'<'"),
-            T::CaretClose => write!(f, "'>'"),
-            T::Colon => write!(f, "':'"),
-            T::Coma => write!(f, "','"),
-            T::SemiColon => write!(f, "';'"),
-            T::Quote => write!(f, "'"),
-            T::DoubleQuote => write!(f, "'\"'"),
-            T::And => write!(f, "'&'"),
-            T::DoubleAnd => write!(f, "'&&'"),
-            T::Bang => write!(f, "'!'"),
-            T::QuestionMark => write!(f, "'?'"),
-            T::Dot => write!(f, "'.'"),
-            T::Plus => write!(f, "'+'"),
-            T::Dash => write!(f, "'-'"),
-            T::Star => write!(f, "'*'"),
-            T::Equal => write!(f, "'='"),
-        }
-    }
-}
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub struct Token<'a> {
-    pub kind: TokenType,
-    pub content: Cow<'a, str>,
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct TokenPosition {
     pub row: u32,
     pub col: u32,
 }
 
-impl<'a> Token<'a> {
-    pub fn to_static(&self) -> Token<'static> {
-        Token::<'static> {
+pub trait Token<'a> {
+    type Static: Token<'static> + 'static;
+
+    fn kind(&self) -> TokenType;
+    fn position(&self) -> TokenPosition;
+    fn content(&self) -> &'a str;
+
+    fn from_generic(gen: &GenericToken<'a>) -> Option<Self>
+        where Self: Sized;
+    fn to_generic(&self) -> GenericToken<'a>;
+    fn to_static(&self) -> Self::Static;
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct GenericToken<'a> {
+    pub kind: TokenType,
+    pub content: Cow<'a, str>,
+    pub pos: TokenPosition,
+}
+
+impl<'a> Token<'a> for GenericToken<'a> {
+    type Static = GenericToken<'static>;
+
+    fn kind(&self) -> TokenType {
+        self.kind
+    }
+    fn position(&self) -> TokenPosition {
+        self.pos
+    }
+    fn content(&self) -> &'a str {
+        &self.content
+    }
+
+    fn from_generic(gen: &GenericToken<'a>) -> Option<Self> {
+        Some(gen.clone())
+    }
+    fn to_generic(&self) -> GenericToken<'a> {
+        self.clone()
+    }
+    fn to_static(&self) -> GenericToken<'static> {
+        GenericToken::<'static> {
             kind: self.kind.clone(),
             content: self.content.clone().into_owned().into(),
-            row: self.row,
-            col: self.col,
+            pos: self.pos,
         }
     }
 }
+
+macro_rules! tokens {
+    (
+        $($name:ident($tname:ident, $print:expr)),*
+    ) => {
+        #[derive(ConstParamTy, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+        pub enum TokenType {
+            $($name),*
+        }
+
+        impl Display for TokenType {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                use TokenType as T;
+                match self {
+                    $(
+                    T::$name => write!(f, $print),
+                    )*
+                }
+            }
+        }
+
+        $(
+        pub struct $tname<'a> {
+            pub content: Cow<'a, str>,
+            pub pos: TokenPosition,
+        }
+
+        impl<'a> Token<'a> for $tname<'a> {
+            type Static = $tname<'static>;
+
+            fn kind(&self) -> TokenType {
+                TokenType::$name
+            }
+            fn position(&self) -> TokenPosition {
+                self.pos
+            }
+            fn content(&self) -> &'a str {
+                &*self.content
+            }
+
+            fn from_generic(gen: &GenericToken<'a>) -> Option<Self> {
+                if gen.kind == TokenType::$name {
+                    Some(Self {
+                        pos: gen.pos,
+                        content: gen.content,
+                    })
+                }
+                else {
+                    None
+                }
+            }
+            fn to_static(&self) -> $tname<'static> {
+                $tname {
+                    content: self.content.clone().into_owned().into(),
+                    pos: self.pos,
+                }
+            }
+            fn to_generic(&self) -> GenericToken<'a> {
+                GenericToken {
+                    kind: TokenType::$name,
+                    content: self.content.clone().into_owned().into(),
+                    pos: self.pos,
+                }
+            }
+        }
+        )*
+    };
+}
+
+tokens!(
+    Machine(MachineToken, "'machine'"),
+    Initial(InitialToken, "'initial'"),
+    State(StateToken, "'state'"),
+    Data(DataToken, "'data'"),
+    On(OnToken, "'on'"),
+    Mut(MutToken, "'mut'"),
+
+    Iden(IdenToken, "<identifier>"),
+
+    If(IfToken, "'if'"),
+    Else(ElseToken, "'else'"),
+    While(WhileToken, "'while'"),
+
+    True(TrueToken, "'true'"),
+    False(FalseToken, "'false'"),
+    DecimalLiteral(DecimalLiteralToken, "<number>"),
+    StringLiteral(StringLiteralToken, "<string>"),
+
+    LineComment(LineCommentToken, "<comment>"),
+    BlockComment(BlockCommentToken, "<block_comment>"),
+
+    ThinArrow(ThinArrowToken, "'->'"),
+    FatArrow(FatArrowToken, "'=>'"),
+
+    VBar(VBarToken, "'|'"),
+    DoubleVBar(DoubleVBarToken, "'||'"),
+    FSlash(FSlashToken, "'/'"),
+    BSlash(BSlashToken, "'\\'"),
+    CurlyOpen(CurlyOpenToken, "'{{'"),
+    CurlyClose(CurlyCloseToken, "'}}'"),
+    ParenOpen(ParenOpenToken, "'('"),
+    ParenClose(ParenCloseToken, "')'"),
+    BracketOpen(BracketOpenToken, "'['"),
+    BracketClose(BracketCloseToken, "']'"),
+    CaretOpen(CaretOpenToken, "'<'"),
+    CaretClose(CaretCloseToken, "'>'"),
+    Colon(ColonToken, "':'"),
+    Coma(ComaToken, "','"),
+    SemiColon(SemiColonToken, "';'"),
+    Quote(QuoteToken, "'"),
+    DoubleQuote(DoubleQuoteToken, "'\"'"),
+    And(AndToken, "'&'"),
+    DoubleAnd(DoubleAndToken, "'&&'"),
+    Bang(BangToken, "'!'"),
+    QuestionMark(QuestionMarkToken, "'?'"),
+    Dot(DotToken, "'.'"),
+    Plus(PlusToken, "'+'"),
+    Dash(DashToken, "'-'"),
+    Star(StarToken, "'*'"),
+    Equal(EqualToken, "'='")
+);
 
 const ID_CHARS_START: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
 const ID_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$";
@@ -335,7 +384,7 @@ impl<'a> Tokenizer<'a> {
 }
 
 impl<'a> Iterator for Tokenizer<'a> {
-    type Item = Result<Token<'a>, LexerError>;
+    type Item = Result<GenericToken<'a>, LexerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.peek_char()?.is_whitespace() {
@@ -364,18 +413,17 @@ impl<'a> Iterator for Tokenizer<'a> {
         let len = self.chs - start_chs;
         let content = Cow::from(&start_str[0..len]);
 
-        Some(Ok(Token {
+        Some(Ok(GenericToken {
             kind,
             content,
-            row,
-            col,
+            pos: TokenPosition { row: self.row, col: self.col }
         }))
     }
 }
 
 pub struct TokenStream<'a> {
     tokenizer: Tokenizer<'a>,
-    peeked: Vec<Token<'a>>,
+    peeked: Vec<GenericToken<'a>>,
 }
 
 impl<'a> TokenStream<'a> {
@@ -386,7 +434,7 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    fn ignored_next(&mut self) -> Result<Option<Token<'a>>, LexerError> {
+    fn ignored_next(&mut self) -> Result<Option<GenericToken<'a>>, LexerError> {
         loop {
             match self.tokenizer.next() {
                 Some(Ok(t)) if t.kind == TokenType::LineComment => (),
@@ -396,12 +444,12 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    pub fn get(&mut self) -> Result<Option<Token<'a>>, LexerError> {
+    pub fn get(&mut self) -> Result<Option<GenericToken<'a>>, LexerError> {
         self.next().transpose()
     }
 
-    pub fn get_if<F>(&mut self, f: F) -> Result<Option<Token<'a>>, LexerError>
-        where F: FnOnce(&Token<'a>) -> bool
+    pub fn get_if<F>(&mut self, f: F) -> Result<Option<GenericToken<'a>>, LexerError>
+        where F: FnOnce(&GenericToken<'a>) -> bool
     {
         if self.peek()?.is_some_and(f) {
             return Ok(self.get()?);
@@ -409,11 +457,11 @@ impl<'a> TokenStream<'a> {
         Ok(None)
     }
 
-    pub fn get_eq(&mut self, ty: TokenType) -> Result<Option<Token<'a>>, LexerError> {
+    pub fn get_eq(&mut self, ty: TokenType) -> Result<Option<GenericToken<'a>>, LexerError> {
         self.get_if(|t| t.kind == ty)
     }
 
-    pub fn peek_n(&mut self, n: usize) -> Result<Option<&Token<'a>>, LexerError> {
+    pub fn peek_n(&mut self, n: usize) -> Result<Option<&GenericToken<'a>>, LexerError> {
         while self.peeked.len() <= n {
             let t = match self.ignored_next() {
                 Ok(Some(t)) => t,
@@ -426,11 +474,11 @@ impl<'a> TokenStream<'a> {
         Ok(Some(&self.peeked[n]))
     }
 
-    pub fn peek(&mut self) -> Result<Option<&Token<'a>>, LexerError> {
+    pub fn peek(&mut self) -> Result<Option<&GenericToken<'a>>, LexerError> {
         self.peek_n(0)
     }
 
-    pub fn peek_eq(&mut self, ty: TokenType) -> Result<Option<&Token<'a>>, LexerError> {
+    pub fn peek_eq(&mut self, ty: TokenType) -> Result<Option<&GenericToken<'a>>, LexerError> {
         match self.peek_n(0)? {
             Some(s) if s.kind == ty => Ok(Some(s)),
             _ => Ok(None),
@@ -439,7 +487,7 @@ impl<'a> TokenStream<'a> {
 }
 
 impl<'a> Iterator for TokenStream<'a> {
-    type Item = Result<Token<'a>, LexerError>;
+    type Item = Result<GenericToken<'a>, LexerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.peeked.len() > 0 {
@@ -467,109 +515,92 @@ data on state = 123456 + 031.4
         }
 
         let mut tokens = Tokenizer::new(SRC);
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Machine,
             content: "machine".into(),
-            row: 0,
-            col: 0
+            pos: TokenPosition { row: 0, col: 0 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Dash,
             content: "-".into(),
-            row: 0,
-            col: 8
+            pos: TokenPosition { row: 0, col: 8 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Star,
             content: "*".into(),
-            row: 0,
-            col: 9
+            pos: TokenPosition { row: 0, col: 9 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Plus,
             content: "+".into(),
-            row: 0,
-            col: 10
+            pos: TokenPosition { row: 0, col: 10 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Dash,
             content: "-".into(),
-            row: 0,
-            col: 11
+            pos: TokenPosition { row: 0, col: 11 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::BSlash,
             content: "\\".into(),
-            row: 0,
-            col: 12
+            pos: TokenPosition { row: 0, col: 12 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Iden,
             content: "test".into(),
-            row: 0,
-            col: 14
+            pos: TokenPosition { row: 0, col: 14 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Dash,
             content: "-".into(),
-            row: 0,
-            col: 18
+            pos: TokenPosition { row: 0, col: 18 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Iden,
             content: "test".into(),
-            row: 0,
-            col: 19
+            pos: TokenPosition { row: 0, col: 19 },
         })));
 
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::LineComment,
             content: "# Bite".into(),
-            row: 1,
-            col: 0
+            pos: TokenPosition { row: 1, col: 0 },
         })));
 
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Data,
             content: "data".into(),
-            row: 2,
-            col: 0
+            pos: TokenPosition { row: 2, col: 0 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::On,
             content: "on".into(),
-            row: 2,
-            col: 5
+            pos: TokenPosition { row: 2, col: 5 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::State,
             content: "state".into(),
-            row: 2,
-            col: 8
+            pos: TokenPosition { row: 2, col: 8 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Equal,
             content: "=".into(),
-            row: 2,
-            col: 14
+            pos: TokenPosition { row: 2, col: 14 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::DecimalLiteral,
             content: "123456".into(),
-            row: 2,
-            col: 16
+            pos: TokenPosition { row: 2, col: 16 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::Plus,
             content: "+".into(),
-            row: 2,
-            col: 23
+            pos: TokenPosition { row: 2, col: 23 },
         })));
-        assert_eq!(tokens.next(), Some(Ok(Token {
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
             kind: TokenType::DecimalLiteral,
             content: "031.4".into(),
-            row: 2,
-            col: 25
+            pos: TokenPosition { row: 2, col: 25 },
         })));
     }
 }
