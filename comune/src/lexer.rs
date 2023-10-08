@@ -23,10 +23,14 @@ pub trait Token<'a> {
     fn position(&self) -> TokenPosition;
     fn content(&self) -> &'a str;
 
-    fn from_generic(gen: &GenericToken<'a>) -> Option<Self>
+    fn from_generic(gen: GenericToken<'a>) -> Option<Self>
         where Self: Sized;
     fn to_generic(&self) -> GenericToken<'a>;
     fn to_static(&self) -> Self::Static;
+}
+
+pub trait KnownToken<'a>: Token<'a> {
+    const KIND: TokenType;
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -49,8 +53,8 @@ impl<'a> Token<'a> for GenericToken<'a> {
         &self.content
     }
 
-    fn from_generic(gen: &GenericToken<'a>) -> Option<Self> {
-        Some(gen.clone())
+    fn from_generic(gen: GenericToken<'a>) -> Option<Self> {
+        Some(gen)
     }
     fn to_generic(&self) -> GenericToken<'a> {
         self.clone()
@@ -103,7 +107,7 @@ macro_rules! tokens {
                 &*self.content
             }
 
-            fn from_generic(gen: &GenericToken<'a>) -> Option<Self> {
+            fn from_generic(gen: GenericToken<'a>) -> Option<Self> {
                 if gen.kind == TokenType::$name {
                     Some(Self {
                         pos: gen.pos,
@@ -127,6 +131,10 @@ macro_rules! tokens {
                     pos: self.pos,
                 }
             }
+        }
+
+        impl<'a> KnownToken<'a> for $tname<'a> {
+            const KIND: TokenType = TokenType::$name;
         }
         )*
     };
@@ -457,8 +465,13 @@ impl<'a> TokenStream<'a> {
         Ok(None)
     }
 
-    pub fn get_eq(&mut self, ty: TokenType) -> Result<Option<GenericToken<'a>>, LexerError> {
-        self.get_if(|t| t.kind == ty)
+    pub fn get_eq<T: KnownToken<'a>>(
+        &mut self
+    ) -> Result<Option<T>, LexerError> {
+        Ok(
+            self.get_if(|t| t.kind == T::KIND)?
+            .and_then(|t| T::from_generic(t))
+        )
     }
 
     pub fn peek_n(&mut self, n: usize) -> Result<Option<&GenericToken<'a>>, LexerError> {
