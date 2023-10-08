@@ -60,9 +60,9 @@ pub mod ast {
     }
 
     pub struct Dyn<'a> {
-        pub src_expr: Expr<'a>,
+        pub src_expr: Expr0<'a>,
         pub thin_arrow: ThinArrowToken<'a>,
-        pub stmt: Expr<'a>,
+        pub stmt: Expr0<'a>,
     }
 
     pub struct Data<'a> {
@@ -95,47 +95,80 @@ pub mod ast {
         Named(GenericToken<'a>),
     }
 
-    pub struct BinOp<'a>{
-        pub left: Box<Expr<'a>>,
-        pub op: GenericToken<'a>,
-        pub right: Box<Expr<'a>>,
+    pub struct InfixOp<'a, Left, Op: KnownToken<'a>, Right>{
+        pub left: Box<Left>,
+        pub op: Op,
+        pub right: Box<Right>,
+        pub p: PhantomData<*const &'a ()>,
     }
 
     pub struct ParentisedExpr<'a>{
         pub open: ParenOpenToken<'a>,
-        pub expr: Box<Expr<'a>>,
+        pub expr: Box<Expr0<'a>>,
         pub close: ParenCloseToken<'a>,
     }
 
     pub struct BlockExpr<'a> {
         pub open: CurlyOpenToken<'a>,
-        pub exprs: SeparatedList<'a, CurlyCloseToken<'a>, SemiColonToken<'a>, Expr<'a>>,
+        pub exprs: SeparatedList<'a, CurlyCloseToken<'a>, SemiColonToken<'a>, Expr0<'a>>,
         pub close: CurlyCloseToken<'a>,
     }
 
     pub struct IfExpr<'a>{
         pub if_: IfToken<'a>,
-        pub cond: Box<Expr<'a>>,
-        pub then: Box<Expr<'a>>,
-        pub else_: Option<Box<Expr<'a>>>,
+        pub cond: Box<Expr0<'a>>,
+        pub then: Box<Expr0<'a>>,
+        pub else_: Option<Box<Expr0<'a>>>,
     }
 
     pub struct WhileExpr<'a>{
         pub while_: WhileToken<'a>,
-        pub cond: Box<Expr<'a>>,
-        pub do_: Box<Expr<'a>>,
+        pub cond: Box<Expr0<'a>>,
+        pub do_: Box<Expr0<'a>>,
     }
 
-    pub enum Expr<'a> {
+    pub enum AnyLiteral<'a> {
+        Decimal(DecimalLiteral<'a>),
+        String(StringLiteral<'a>),
+    }
+
+    pub struct DecimalLiteral<'a> {
+        pub tok: DecimalLiteralToken<'a>,
+    }
+
+    pub struct StringLiteral<'a> {
+        pub tok: StringLiteralToken<'a>,
+    }
+
+    pub enum Expr0<'a> {
+        Expr(Expr1<'a>),
+        BooleanOr(InfixOp<'a, Expr0<'a>, DoubleVBarToken<'a>, Expr1<'a>>),
+    }
+
+    pub enum Expr1<'a> {
+        Expr(Expr2<'a>),
+        BooleanAnd(InfixOp<'a, Expr1<'a>, DoubleAndToken<'a>, Expr2<'a>>),
+    }
+
+    pub enum Expr2<'a> {
+        Expr(Expr3<'a>),
+        Plus(InfixOp<'a, Expr2<'a>, PlusToken<'a>, Expr3<'a>>),
+        Minus(InfixOp<'a, Expr2<'a>, DashToken<'a>, Expr3<'a>>),
+    }
+
+    pub enum Expr3<'a> {
         Parentised(ParentisedExpr<'a>),
         Block(BlockExpr<'a>),
-        Id(GenericToken<'a>),
-        BinOp(BinOp<'a>),
+        Id(IdenToken<'a>),
         If(IfExpr<'a>),
         While(WhileExpr<'a>),
+        Literal(AnyLiteral<'a>),
+
+        Times(InfixOp<'a, Expr3<'a>, StarToken<'a>, Expr3<'a>>),
     }
 }
-use std::{ops::Deref, marker::PhantomData};
+
+use std::marker::PhantomData;
 
 use ast::*;
 
@@ -166,7 +199,7 @@ macro_rules! l_one {
             $(.chain(<$x>::expected_first()))+
         )? {
             $(
-            GenericToken { kind, .. } if $x::expected_first().any(|t| &t == kind) => {
+            GenericToken { kind, .. } if $x::expects(Some(kind)) => {
                 l_one!(use $tokens, $x $($exps)?).map($t)
             }
             )+
@@ -274,6 +307,10 @@ pub enum ParserError {
 }
 
 pub trait Parsable<'a>: Sized {
+    fn expects(e: Option<&TokenType>) -> bool {
+        Self::expected_first().any(|t| Some(&t) == e)
+    }
+
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone;
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError>;
@@ -463,12 +500,12 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
 impl<'a> Parsable<'a> for Dyn<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            Expr
+            Expr0
         )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let src_expr = Expr::parse(tokens)?;
+        let src_expr = Expr0::parse(tokens)?;
         let thin_arrow = tokens.expected::<ThinArrowToken>()?;
         let stmt = todo!();
 
@@ -547,36 +584,183 @@ impl<'a> Parsable<'a> for On<'a> {
     }
 }
 
-trait ExprParse<'a, const PRES: usize>: Sized {
-    fn expr_parse(
-        tokens: &mut TokenStream<'a>,
-    ) -> Result<Self, ParserError>;
-}
-
-impl<'a> Parsable<'a> for Expr<'a> {
+impl<'a> Parsable<'a> for AnyLiteral<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!()
+        expected!(
+            StringLiteral,
+            DecimalLiteral
+        )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        ExprParse::<'a, 0>::expr_parse(tokens)
+        l_one!(tokens;
+            Self::String => StringLiteral,
+            Self::Decimal => DecimalLiteral
+        )
     }
 }
 
-impl<'a, const PRES: usize> ExprParse<'a, PRES> for Expr<'a> {
-    fn expr_parse(
-        tokens: &mut TokenStream<'a>,
-    ) -> Result<Self, ParserError> {
-        let left: Self = l_one!(tokens;
-            Self::Parentised => ParentisedExpr {
-                ParentisedExpr::expr_parse(tokens, ctx)
-            },
-            Self::Block => BlockExpr {
-                BlockExpr::expr_parse(tokens, ctx)
-            }
-        )?;
+impl<'a> Parsable<'a> for DecimalLiteral<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            DecimalLiteralToken
+        )
+    }
 
-        todo!()
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        Ok(Self {
+            tok: tokens.expected()?,
+        })
+    }
+}
+
+impl<'a> Parsable<'a> for StringLiteral<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            StringLiteralToken
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        Ok(Self {
+            tok: tokens.expected()?,
+        })
+    }
+}
+
+impl<'a> Parsable<'a> for Expr0<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            Expr1
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        let mut left = Self::Expr(Expr1::parse(tokens)?);
+
+        loop {
+            if let Some(op) = tokens.get_eq()? {
+                left = Self::BooleanOr(InfixOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(Parsable::parse(tokens)?),
+                    p: PhantomData,
+                });
+            }
+            else {
+                break;
+            }
+        }
+        return Ok(left);
+    }
+}
+
+impl<'a> Parsable<'a> for Expr1<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            Expr2
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        let mut left = Self::Expr(Expr2::parse(tokens)?);
+
+        loop {
+            if let Some(op) = tokens.get_eq()? {
+                left = Self::BooleanAnd(InfixOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(Parsable::parse(tokens)?),
+                    p: PhantomData,
+                });
+            }
+            else {
+                break;
+            }
+        }
+        return Ok(left);
+    }
+}
+
+impl<'a> Parsable<'a> for Expr2<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            Expr3
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        let mut left = Self::Expr(Expr3::parse(tokens)?);
+
+        loop {
+            if let Some(op) = tokens.get_eq()? {
+                left = Self::Plus(InfixOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(Parsable::parse(tokens)?),
+                    p: PhantomData,
+                });
+            }
+            else if let Some(op) = tokens.get_eq()? {
+                left = Self::Minus(InfixOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(Parsable::parse(tokens)?),
+                    p: PhantomData,
+                });
+            }
+            else {
+                break;
+            }
+        }
+        return Ok(left);
+    }
+}
+
+impl<'a> Parsable<'a> for Expr3<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            ParentisedExpr,
+            BlockExpr,
+            IfExpr,
+            WhileExpr,
+            AnyLiteral
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        let peeked = tokens.peek_expecteds(Self::expected_first())?;
+        let pt = Some(&peeked.kind);
+
+        let left = if ParentisedExpr::expects(pt) {
+            Self::Parentised(Parsable::parse(tokens)?)
+        }
+        else if BlockExpr::expects(pt) {
+            Self::Block(Parsable::parse(tokens)?)
+        }
+        else if IfExpr::expects(pt) {
+            Self::If(Parsable::parse(tokens)?)
+        }
+        else if WhileExpr::expects(pt) {
+            Self::While(Parsable::parse(tokens)?)
+        }
+        else if AnyLiteral::expects(pt) {
+            Self::Literal(Parsable::parse(tokens)?)
+        }
+        else {
+            unreachable!()
+        };
+
+        if let Some(star) = tokens.get_eq::<StarToken>()? {
+            return Ok(Self::Times(InfixOp {
+                left: Box::new(left),
+                op: star,
+                right: Box::new(Self::parse(tokens)?),
+                p: PhantomData,
+            }));
+        }
+
+        Ok(left)
     }
 }
 
@@ -588,23 +772,11 @@ impl<'a> Parsable<'a> for ParentisedExpr<'a> {
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let open = tokens.expected::<ParenOpenToken>()?;
-        let expr = Box::new(Expr::parse(tokens)?);
-        let close = tokens.expected::<ParenCloseToken>()?;
         Ok(ParentisedExpr {
-            open,
-            expr,
-            close
+            open: Parsable::parse(tokens)?,
+            expr: Box::new(Parsable::parse(tokens)?),
+            close: Parsable::parse(tokens)?,
         })
-    }
-}
-
-impl<'a> ExprParse<'a> for ParentisedExpr<'a> {
-    fn expr_parse(
-        tokens: &mut TokenStream<'a>,
-        ctx: ExprParseContext<'a>,
-    ) -> Result<Self, ParserError> {
-        todo!()
     }
 }
 
@@ -616,23 +788,11 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let open = tokens.expected::<CurlyOpenToken>()?;
-        let exprs = Parsable::parse(tokens);
-        let close = tokens.expected::<CurlyCloseToken>()?;
         Ok(BlockExpr {
-            open,
-            exprs,
-            close
+            open: Parsable::parse(tokens)?,
+            exprs: Parsable::parse(tokens)?,
+            close: Parsable::parse(tokens)?,
         })
-    }
-}
-
-impl<'a> ExprParse<'a> for BlockExpr<'a> {
-    fn expr_parse(
-        tokens: &mut TokenStream<'a>,
-        ctx: ExprParseContext<'a>,
-    ) -> Result<Self, ParserError> {
-        todo!()
     }
 }
 
@@ -647,6 +807,26 @@ impl<'a> Parsable<'a> for Type<'a> {
 }
 
 impl<'a> Parsable<'a> for Parameter<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!()
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        todo!()
+    }
+}
+
+impl<'a> Parsable<'a> for IfExpr<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!()
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        todo!()
+    }
+}
+
+impl<'a> Parsable<'a> for WhileExpr<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!()
     }
