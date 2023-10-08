@@ -4,6 +4,9 @@ pub mod ast {
 
     use crate::lexer::*;
 
+    /// Generic Container of statments supporting both surrounding every
+    /// statements or just a semi, making every following statements as being
+    /// part of the container, until the End token is reached.
     pub enum StmtContainer<'a, End: KnownToken<'a>, T> {
         Never {
             never: !,
@@ -20,6 +23,7 @@ pub mod ast {
         },
     }
 
+    /// List of nodes separated by a token, usually a comma (ex. arguments)
     pub struct SeparatedList<'a, End: KnownToken<'a>, Sep: KnownToken<'a>, T> {
         pub phantom: PhantomData<*const &'a End>,
 
@@ -27,16 +31,19 @@ pub mod ast {
         pub last: Option<(Box<T>, Option<Sep>)>,
     }
 
+    /// A Machine statement
     pub struct Machine<'a> {
         pub machine_token: MachineToken<'a>,
         pub id: IdenToken<'a>,
         pub stmts: StmtContainer<'a, MachineToken<'a>, MachineStmt<'a>>,
     }
 
+    /// Statements that go into a Machine
     pub enum MachineStmt<'a> {
         State(State<'a>),
     }
 
+    /// A State statement
     pub struct State<'a> {
         pub initial_token: Option<InitialToken<'a>>,
         pub state_token: StateToken<'a>,
@@ -44,6 +51,7 @@ pub mod ast {
         pub stmts: StmtContainer<'a, StateToken<'a>, StateStmt<'a>>,
     }
 
+    /// Statements that go into a State
     pub enum StateStmt<'a> {
         Transition(StateTransition<'a>),
         Dyn(Dyn<'a>),
@@ -51,6 +59,7 @@ pub mod ast {
         On(On<'a>),
     }
 
+    /// A state-transition statement
     pub struct StateTransition<'a> {
         pub equal: EqualToken<'a>,
         pub name_id: IdenToken<'a>,
@@ -59,12 +68,14 @@ pub mod ast {
         pub semi: SemiColonToken<'a>,
     }
 
+    /// A dynamic statement
     pub struct Dyn<'a> {
         pub src_expr: Expr0<'a>,
         pub thin_arrow: ThinArrowToken<'a>,
         pub stmt: Expr0<'a>,
     }
 
+    /// A state-data statement
     pub struct Data<'a> {
         pub data: DataToken<'a>,
         pub curly_open: CurlyOpenToken<'a>,
@@ -72,12 +83,14 @@ pub mod ast {
         pub curly_close: CurlyCloseToken<'a>,
     }
 
+    /// Statements that go into a Data statement
     pub struct DataStmt<'a> {
         pub mutability: Option<MutToken<'a>>,
         pub id: IdenToken<'a>,
         pub ty: Type<'a>,
     }
 
+    /// A 'on' statement
     pub struct On<'a> {
         pub on: OnToken<'a>,
         pub id: IdenToken<'a>,
@@ -86,15 +99,18 @@ pub mod ast {
         pub paren_close: ParenCloseToken<'a>,
     }
 
+    /// A parameter of a function / 'on' statement
     pub struct Parameter<'a> {
         pub id: IdenToken<'a>,
         pub ty: Type<'a>,
     }
 
+    /// A Type
     pub enum Type<'a> {
         Named(GenericToken<'a>),
     }
 
+    /// Operator in the infix form
     pub struct InfixOp<'a, Left, Op: KnownToken<'a>, Right>{
         pub left: Box<Left>,
         pub op: Op,
@@ -102,18 +118,22 @@ pub mod ast {
         pub p: PhantomData<*const &'a ()>,
     }
 
+    /// An expression surrounded by parenthesis
     pub struct ParentisedExpr<'a>{
         pub open: ParenOpenToken<'a>,
         pub expr: Box<Expr0<'a>>,
         pub close: ParenCloseToken<'a>,
     }
 
+    /// A list of expressions separated by semicolons and surrounded by 
+    /// curly braces
     pub struct BlockExpr<'a> {
         pub open: CurlyOpenToken<'a>,
         pub exprs: SeparatedList<'a, CurlyCloseToken<'a>, SemiColonToken<'a>, Expr0<'a>>,
         pub close: CurlyCloseToken<'a>,
     }
 
+    /// An if expression
     pub struct IfExpr<'a>{
         pub if_: IfToken<'a>,
         pub cond: Box<Expr0<'a>>,
@@ -121,50 +141,68 @@ pub mod ast {
         pub else_: Option<Box<Expr0<'a>>>,
     }
 
+    /// A while expression
     pub struct WhileExpr<'a>{
         pub while_: WhileToken<'a>,
         pub cond: Box<Expr0<'a>>,
         pub do_: Box<Expr0<'a>>,
     }
 
+    /// A literal value
     pub enum AnyLiteral<'a> {
         Decimal(DecimalLiteral<'a>),
         String(StringLiteral<'a>),
     }
 
+    /// A decimal literal
     pub struct DecimalLiteral<'a> {
         pub tok: DecimalLiteralToken<'a>,
     }
 
+    /// A string literal
     pub struct StringLiteral<'a> {
         pub tok: StringLiteralToken<'a>,
     }
 
+    /// An expression with highest precedence
+    /// Has the BooleanOr binary operator
     pub enum Expr0<'a> {
         Expr(Expr1<'a>),
         BooleanOr(InfixOp<'a, Expr0<'a>, DoubleVBarToken<'a>, Expr1<'a>>),
     }
 
+    /// An expression with intemediate precedance
+    /// Has the BooleanAnd binary operator
     pub enum Expr1<'a> {
         Expr(Expr2<'a>),
         BooleanAnd(InfixOp<'a, Expr1<'a>, DoubleAndToken<'a>, Expr2<'a>>),
     }
 
+    /// An expression with intemediate precedance
+    /// Has the Plus and Minus binary operators
     pub enum Expr2<'a> {
         Expr(Expr3<'a>),
         Plus(InfixOp<'a, Expr2<'a>, PlusToken<'a>, Expr3<'a>>),
         Minus(InfixOp<'a, Expr2<'a>, DashToken<'a>, Expr3<'a>>),
     }
 
+    /// An expression with lowest precedance
+    /// Has the Times and Divide biary operators
     pub enum Expr3<'a> {
+        Expr(Expr4<'a>),
+        Times(InfixOp<'a, Expr3<'a>, StarToken<'a>, Expr4<'a>>),
+        Divide(InfixOp<'a, Expr3<'a>, FSlashToken<'a>, Expr4<'a>>),
+    }
+
+    /// An expression with no binary operators
+    /// Has the Times and Divide biary operators
+    pub enum Expr4<'a> {
         Parentised(ParentisedExpr<'a>),
         Block(BlockExpr<'a>),
         Id(IdenToken<'a>),
         If(IfExpr<'a>),
         While(WhileExpr<'a>),
         Literal(AnyLiteral<'a>),
-
-        Times(InfixOp<'a, Expr3<'a>, StarToken<'a>, Expr3<'a>>),
     }
 }
 
@@ -729,38 +767,54 @@ impl<'a> Parsable<'a> for Expr3<'a> {
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let peeked = tokens.peek_expecteds(Self::expected_first())?;
-        let pt = Some(&peeked.kind);
+        let mut left = Self::Expr(Expr4::parse(tokens)?);
 
-        let left = if ParentisedExpr::expects(pt) {
-            Self::Parentised(Parsable::parse(tokens)?)
-        }
-        else if BlockExpr::expects(pt) {
-            Self::Block(Parsable::parse(tokens)?)
-        }
-        else if IfExpr::expects(pt) {
-            Self::If(Parsable::parse(tokens)?)
-        }
-        else if WhileExpr::expects(pt) {
-            Self::While(Parsable::parse(tokens)?)
-        }
-        else if AnyLiteral::expects(pt) {
-            Self::Literal(Parsable::parse(tokens)?)
-        }
-        else {
-            unreachable!()
-        };
-
-        if let Some(star) = tokens.get_eq::<StarToken>()? {
-            return Ok(Self::Times(InfixOp {
-                left: Box::new(left),
-                op: star,
-                right: Box::new(Self::parse(tokens)?),
-                p: PhantomData,
-            }));
+        loop {
+            if let Some(op) = tokens.get_eq()? {
+                left = Self::Times(InfixOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(Parsable::parse(tokens)?),
+                    p: PhantomData,
+                });
+            }
+            else if let Some(op) = tokens.get_eq()? {
+                left = Self::Divide(InfixOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(Parsable::parse(tokens)?),
+                    p: PhantomData,
+                });
+            }
+            else {
+                break;
+            }
         }
 
         Ok(left)
+    }
+}
+
+impl<'a> Parsable<'a> for Expr4<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            ParentisedExpr,
+            BlockExpr,
+            IfExpr,
+            WhileExpr,
+            AnyLiteral
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        l_one!(tokens;
+            Self::Parentised => ParentisedExpr,
+            Self::Block => BlockExpr,
+            Self::Id => IdenToken,
+            Self::If => IfExpr,
+            Self::While => WhileExpr,
+            Self::Literal => AnyLiteral
+        )
     }
 }
 
