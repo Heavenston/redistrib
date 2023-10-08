@@ -21,7 +21,7 @@ pub trait Token<'a> {
 
     fn kind(&self) -> TokenType;
     fn position(&self) -> TokenPosition;
-    fn content(&self) -> &'a str;
+    fn content(&'a self) -> &'a str;
 
     fn from_generic(gen: GenericToken<'a>) -> Option<Self>
         where Self: Sized;
@@ -49,8 +49,8 @@ impl<'a> Token<'a> for GenericToken<'a> {
     fn position(&self) -> TokenPosition {
         self.pos
     }
-    fn content(&self) -> &'a str {
-        &self.content
+    fn content(&'a self) -> &'a str {
+        self.content.as_ref()
     }
 
     fn from_generic(gen: GenericToken<'a>) -> Option<Self> {
@@ -103,7 +103,7 @@ macro_rules! tokens {
             fn position(&self) -> TokenPosition {
                 self.pos
             }
-            fn content(&self) -> &'a str {
+            fn content(&'a self) -> &'a str {
                 &*self.content
             }
 
