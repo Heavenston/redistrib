@@ -89,6 +89,7 @@ macro_rules! tokens {
         }
 
         $(
+        #[derive(Debug, Clone, Hash, PartialEq, Eq)]
         pub struct $tname<'a> {
             pub content: Cow<'a, str>,
             pub pos: TokenPosition,

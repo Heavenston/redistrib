@@ -4,9 +4,12 @@ pub mod ast {
 
     use crate::lexer::*;
 
+    use derive_more::*;
+
     /// Generic Container of statments supporting both surrounding every
     /// statements or just a semi, making every following statements as being
     /// part of the container, until the End token is reached.
+    #[derive(Debug)]
     pub enum StmtContainer<'a, End: KnownToken<'a>, T> {
         Never {
             never: !,
@@ -24,6 +27,7 @@ pub mod ast {
     }
 
     /// List of nodes separated by a token, usually a comma (ex. arguments)
+    #[derive(Debug)]
     pub struct SeparatedList<'a, End: KnownToken<'a>, Sep: KnownToken<'a>, T> {
         pub phantom: PhantomData<*const &'a End>,
 
@@ -32,6 +36,7 @@ pub mod ast {
     }
 
     /// A Machine statement
+    #[derive(Debug)]
     pub struct Machine<'a> {
         pub machine_token: MachineToken<'a>,
         pub id: IdenToken<'a>,
@@ -39,11 +44,13 @@ pub mod ast {
     }
 
     /// Statements that go into a Machine
+    #[derive(Debug, From)]
     pub enum MachineStmt<'a> {
         State(State<'a>),
     }
 
     /// A State statement
+    #[derive(Debug)]
     pub struct State<'a> {
         pub initial_token: Option<InitialToken<'a>>,
         pub state_token: StateToken<'a>,
@@ -52,6 +59,7 @@ pub mod ast {
     }
 
     /// Statements that go into a State
+    #[derive(Debug, From)]
     pub enum StateStmt<'a> {
         Transition(StateTransition<'a>),
         Dyn(Dyn<'a>),
@@ -60,6 +68,7 @@ pub mod ast {
     }
 
     /// A state-transition statement
+    #[derive(Debug)]
     pub struct StateTransition<'a> {
         pub equal: EqualToken<'a>,
         pub name_id: IdenToken<'a>,
@@ -69,6 +78,7 @@ pub mod ast {
     }
 
     /// A dynamic statement
+    #[derive(Debug)]
     pub struct Dyn<'a> {
         pub src_expr: Expr0<'a>,
         pub thin_arrow: ThinArrowToken<'a>,
@@ -76,6 +86,7 @@ pub mod ast {
     }
 
     /// A state-data statement
+    #[derive(Debug)]
     pub struct Data<'a> {
         pub data: DataToken<'a>,
         pub curly_open: CurlyOpenToken<'a>,
@@ -84,6 +95,7 @@ pub mod ast {
     }
 
     /// Statements that go into a Data statement
+    #[derive(Debug)]
     pub struct DataStmt<'a> {
         pub mutability: Option<MutToken<'a>>,
         pub id: IdenToken<'a>,
@@ -91,6 +103,7 @@ pub mod ast {
     }
 
     /// A 'on' statement
+    #[derive(Debug)]
     pub struct On<'a> {
         pub on: OnToken<'a>,
         pub id: IdenToken<'a>,
@@ -100,17 +113,20 @@ pub mod ast {
     }
 
     /// A parameter of a function / 'on' statement
+    #[derive(Debug)]
     pub struct Parameter<'a> {
         pub id: IdenToken<'a>,
         pub ty: Type<'a>,
     }
 
     /// A Type
+    #[derive(Debug, From)]
     pub enum Type<'a> {
-        Named(GenericToken<'a>),
+        Named(IdenToken<'a>),
     }
 
     /// Operator in the infix form
+    #[derive(Debug)]
     pub struct InfixOp<'a, Left, Op: KnownToken<'a>, Right>{
         pub left: Box<Left>,
         pub op: Op,
@@ -119,6 +135,7 @@ pub mod ast {
     }
 
     /// An expression surrounded by parenthesis
+    #[derive(Debug)]
     pub struct ParentisedExpr<'a>{
         pub open: ParenOpenToken<'a>,
         pub expr: Box<Expr0<'a>>,
@@ -127,6 +144,7 @@ pub mod ast {
 
     /// A list of expressions separated by semicolons and surrounded by 
     /// curly braces
+    #[derive(Debug)]
     pub struct BlockExpr<'a> {
         pub open: CurlyOpenToken<'a>,
         pub exprs: SeparatedList<'a, CurlyCloseToken<'a>, SemiColonToken<'a>, Expr0<'a>>,
@@ -134,14 +152,16 @@ pub mod ast {
     }
 
     /// An if expression
+    #[derive(Debug)]
     pub struct IfExpr<'a>{
         pub if_: IfToken<'a>,
         pub cond: Box<Expr0<'a>>,
         pub then: Box<Expr0<'a>>,
-        pub else_: Option<Box<Expr0<'a>>>,
+        pub else_: Option<(ElseToken<'a>, Box<Expr0<'a>>)>,
     }
 
     /// A while expression
+    #[derive(Debug)]
     pub struct WhileExpr<'a>{
         pub while_: WhileToken<'a>,
         pub cond: Box<Expr0<'a>>,
@@ -149,45 +169,88 @@ pub mod ast {
     }
 
     /// A literal value
+    #[derive(Debug, From)]
     pub enum AnyLiteral<'a> {
         Decimal(DecimalLiteral<'a>),
         String(StringLiteral<'a>),
     }
 
     /// A decimal literal
+    #[derive(Debug, From)]
     pub struct DecimalLiteral<'a> {
         pub tok: DecimalLiteralToken<'a>,
     }
 
     /// A string literal
+    #[derive(Debug, From)]
     pub struct StringLiteral<'a> {
         pub tok: StringLiteralToken<'a>,
     }
 
     /// An expression with highest precedence
     /// Has the BooleanOr binary operator
+    #[derive(Debug, From)]
     pub enum Expr0<'a> {
         Expr(Expr1<'a>),
         BooleanOr(InfixOp<'a, Expr0<'a>, DoubleVBarToken<'a>, Expr1<'a>>),
     }
 
+    impl<'a> From<Expr2<'a>> for Expr0<'a> {
+        fn from(value: Expr2<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
+    impl<'a> From<Expr3<'a>> for Expr0<'a> {
+        fn from(value: Expr3<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
+    impl<'a> From<Expr4<'a>> for Expr0<'a> {
+        fn from(value: Expr4<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
     /// An expression with intemediate precedance
     /// Has the BooleanAnd binary operator
+    #[derive(Debug, From)]
     pub enum Expr1<'a> {
         Expr(Expr2<'a>),
         BooleanAnd(InfixOp<'a, Expr1<'a>, DoubleAndToken<'a>, Expr2<'a>>),
     }
 
+    impl<'a> From<Expr3<'a>> for Expr1<'a> {
+        fn from(value: Expr3<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
+    impl<'a> From<Expr4<'a>> for Expr1<'a> {
+        fn from(value: Expr4<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
     /// An expression with intemediate precedance
     /// Has the Plus and Minus binary operators
+    #[derive(Debug, From)]
     pub enum Expr2<'a> {
         Expr(Expr3<'a>),
         Plus(InfixOp<'a, Expr2<'a>, PlusToken<'a>, Expr3<'a>>),
         Minus(InfixOp<'a, Expr2<'a>, DashToken<'a>, Expr3<'a>>),
     }
 
+    impl<'a> From<Expr4<'a>> for Expr2<'a> {
+        fn from(value: Expr4<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
     /// An expression with lowest precedance
     /// Has the Times and Divide biary operators
+    #[derive(Debug, From)]
     pub enum Expr3<'a> {
         Expr(Expr4<'a>),
         Times(InfixOp<'a, Expr3<'a>, StarToken<'a>, Expr4<'a>>),
@@ -196,6 +259,7 @@ pub mod ast {
 
     /// An expression with no binary operators
     /// Has the Times and Divide biary operators
+    #[derive(Debug, From)]
     pub enum Expr4<'a> {
         Parentised(ParentisedExpr<'a>),
         Block(BlockExpr<'a>),
@@ -852,40 +916,105 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
 
 impl<'a> Parsable<'a> for Type<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!()
+        expected!(
+            IdenToken
+        )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        todo!()
+        l_one!(tokens;
+            Self::Named => IdenToken
+        )
     }
 }
 
 impl<'a> Parsable<'a> for Parameter<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!()
+        expected!(
+            IdenToken
+        )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        todo!()
+        Ok(Self {
+            id: Parsable::parse(tokens)?,
+            ty: Parsable::parse(tokens)?,
+        })
     }
 }
 
 impl<'a> Parsable<'a> for IfExpr<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!()
+        expected!(
+            IfToken
+        )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        todo!()
+        let if_ = tokens.expected::<IfToken>()?;
+
+        let cond: Expr0;
+        let then: Expr0;
+        if tokens.peek_eq(TokenType::ParenOpen)?.is_some() {
+            cond = Expr4::Parentised(ParentisedExpr::parse(tokens)?)
+                .into();
+            then = Expr0::parse(tokens)?;
+        }
+        else {
+            cond = Expr0::parse(tokens)?;
+            then = Expr4::Block(BlockExpr::parse(tokens)?)
+                .into();
+        }
+
+        let mut else_ = None::<(ElseToken<'a>, Box<Expr0<'a>>)>;
+        if tokens.peek_eq(TokenType::Else)?.is_some() {
+            let tok = tokens.expected::<ElseToken>()?;
+            let expr;
+            if tokens.peek_eq(TokenType::If)?.is_some() {
+                expr = Expr4::If(Parsable::parse(tokens)?);
+            }
+            else {
+                expr = Expr4::Block(Parsable::parse(tokens)?);
+            }
+            else_ = Some((tok, Box::new(expr.into())));
+        }
+
+        Ok(Self {
+            if_,
+            cond: Box::new(cond),
+            then: Box::new(then),
+            else_,
+        })
     }
 }
 
 impl<'a> Parsable<'a> for WhileExpr<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!()
+        expected!(
+            WhileToken
+        )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        todo!()
+        let while_ = tokens.expected()?;
+
+        let cond: Expr0<'a>;
+        let do_: Expr0<'a>;
+        if tokens.peek_eq(TokenType::ParenOpen)?.is_some() {
+            cond = Expr4::Parentised(ParentisedExpr::parse(tokens)?)
+                .into();
+            do_ = Expr0::parse(tokens)?;
+        }
+        else {
+            cond = Expr0::parse(tokens)?;
+            do_ = Expr4::Block(BlockExpr::parse(tokens)?)
+                .into();
+        }
+
+        Ok(Self {
+            while_,
+            cond: Box::new(cond),
+            do_: Box::new(do_),
+        })
     }
 }
