@@ -43,12 +43,12 @@ pub mod ast {
     {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             for (t, sep) in self.stmts.iter() {
-                write!(f, "{t}{sep}");
+                write!(f, "{t}{sep}")?;
             }
             if let Some((t, sep)) = &self.last {
-                write!(f, "{t}");
+                write!(f, "{t}")?;
                 if let Some(sep) = sep {
-                    write!(f, "{sep}");
+                    write!(f, "{sep}")?;
                 }
             }
 
@@ -216,9 +216,9 @@ pub mod ast {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{} ", self.if_)?;
             write!(f, "{} ", self.cond)?;
-            write!(f, "{} ", self.then)?;
+            write!(f, "{}", self.then)?;
             if let Some((else_, expr)) = &self.else_ {
-                write!(f, "{else_}{expr}")?;
+                write!(f, " {else_} {expr}")?;
             }
 
             Ok(())
@@ -246,8 +246,10 @@ pub mod ast {
     /// A literal value
     #[derive(Debug, From)]
     pub enum AnyLiteral<'a> {
-        Decimal(DecimalLiteral<'a>),
-        String(StringLiteral<'a>),
+        Decimal(DecimalLiteralToken<'a>),
+        String(StringLiteralToken<'a>),
+        True(TrueToken<'a>),
+        False(FalseToken<'a>),
     }
 
     impl<'a> Display for AnyLiteral<'a> {
@@ -255,31 +257,9 @@ pub mod ast {
             match self {
                 Self::Decimal(e) => write!(f, "{e}"),
                 Self::String(e) => write!(f, "{e}"),
+                Self::True(e) => write!(f, "{e}"),
+                Self::False(e) => write!(f, "{e}"),
             }
-        }
-    }
-
-    /// A decimal literal
-    #[derive(Debug, From)]
-    pub struct DecimalLiteral<'a> {
-        pub tok: DecimalLiteralToken<'a>,
-    }
-
-    impl<'a> Display for DecimalLiteral<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.tok)
-        }
-    }
-
-    /// A string literal
-    #[derive(Debug, From)]
-    pub struct StringLiteral<'a> {
-        pub tok: StringLiteralToken<'a>,
-    }
-
-    impl<'a> Display for StringLiteral<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.tok)
         }
     }
 
@@ -292,9 +272,9 @@ pub mod ast {
     }
 
     impl<'a> Expr0<'a> {
-        pub fn as_expr4(&self) -> Option<&'_ Expr4<'a>> {
+        pub fn as_expr_highest(&self) -> Option<&'_ ExprHighest<'a>> {
             match self {
-                Self::Expr(Expr1::Expr(Expr2::Expr(Expr3::Expr(e))))
+                Self::Expr(Expr1::Expr(Expr2::Expr(Expr3::Expr(Expr4::Expr(e)))))
                     => Some(e),
                 _ => None,
             }
@@ -312,12 +292,6 @@ pub mod ast {
         }
     }
 
-    impl<'a> From<Expr2<'a>> for Expr0<'a> {
-        fn from(value: Expr2<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
-
     impl<'a> From<Expr3<'a>> for Expr0<'a> {
         fn from(value: Expr3<'a>) -> Self {
             Self::Expr(value.into())
@@ -326,6 +300,12 @@ pub mod ast {
 
     impl<'a> From<Expr4<'a>> for Expr0<'a> {
         fn from(value: Expr4<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
+    impl<'a> From<ExprHighest<'a>> for Expr0<'a> {
+        fn from(value: ExprHighest<'a>) -> Self {
             Self::Expr(value.into())
         }
     }
@@ -361,21 +341,25 @@ pub mod ast {
         }
     }
 
+    impl<'a> From<ExprHighest<'a>> for Expr1<'a> {
+        fn from(value: ExprHighest<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
     /// An expression with intemediate precedance
-    /// Has the Plus and Minus binary operators
+    /// Has the comparisons operators
     #[derive(Debug, From)]
     pub enum Expr2<'a> {
         Expr(Expr3<'a>),
-        Plus(InfixOp<'a, Expr2<'a>, PlusToken<'a>, Expr3<'a>>),
-        Minus(InfixOp<'a, Expr2<'a>, DashToken<'a>, Expr3<'a>>),
+        Equality(InfixOp<'a, Expr2<'a>, DoubleEqualToken<'a>, Expr3<'a>>),
     }
 
     impl<'a> Display for Expr2<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Expr(e) => write!(f, "{e}")?,
-                Self::Plus(b) => write!(f, "({b})")?,
-                Self::Minus(b) => write!(f, "({b})")?,
+                Self::Equality(e) => write!(f, "{e}")?,
             }
 
             Ok(())
@@ -388,16 +372,49 @@ pub mod ast {
         }
     }
 
-    /// An expression with lowest precedance
-    /// Has the Times and Divide biary operators
+    impl<'a> From<ExprHighest<'a>> for Expr2<'a> {
+        fn from(value: ExprHighest<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
+    /// An expression with intemediate precedance
+    /// Has the Plus and Minus binary operators
     #[derive(Debug, From)]
     pub enum Expr3<'a> {
         Expr(Expr4<'a>),
-        Times(InfixOp<'a, Expr3<'a>, StarToken<'a>, Expr4<'a>>),
-        Divide(InfixOp<'a, Expr3<'a>, FSlashToken<'a>, Expr4<'a>>),
+        Plus(InfixOp<'a, Expr3<'a>, PlusToken<'a>, Expr4<'a>>),
+        Minus(InfixOp<'a, Expr3<'a>, DashToken<'a>, Expr4<'a>>),
     }
 
     impl<'a> Display for Expr3<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Expr(e) => write!(f, "{e}")?,
+                Self::Plus(b) => write!(f, "({b})")?,
+                Self::Minus(b) => write!(f, "({b})")?,
+            }
+
+            Ok(())
+        }
+    }
+
+    impl<'a> From<ExprHighest<'a>> for Expr3<'a> {
+        fn from(value: ExprHighest<'a>) -> Self {
+            Self::Expr(value.into())
+        }
+    }
+
+    /// An expression with lowest precedance
+    /// Has the Times and Divide biary operators
+    #[derive(Debug, From)]
+    pub enum Expr4<'a> {
+        Expr(ExprHighest<'a>),
+        Times(InfixOp<'a, Expr4<'a>, StarToken<'a>, ExprHighest<'a>>),
+        Divide(InfixOp<'a, Expr4<'a>, FSlashToken<'a>, ExprHighest<'a>>),
+    }
+
+    impl<'a> Display for Expr4<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Expr(e) => write!(f, "{e}")?,
@@ -412,7 +429,7 @@ pub mod ast {
     /// An expression with no binary operators
     /// Has the Times and Divide biary operators
     #[derive(Debug, From)]
-    pub enum Expr4<'a> {
+    pub enum ExprHighest<'a> {
         Parentised(ParentisedExpr<'a>),
         Block(BlockExpr<'a>),
         Id(IdenToken<'a>),
@@ -421,7 +438,7 @@ pub mod ast {
         Literal(AnyLiteral<'a>),
     }
 
-    impl<'a> Display for Expr4<'a> {
+    impl<'a> Display for ExprHighest<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Parentised(e) => write!(f, "{e}")?,
@@ -777,7 +794,7 @@ impl<'a> Parsable<'a> for Dyn<'a> {
         let src_expr = Expr0::parse(tokens)?;
         let thin_arrow = tokens.expected::<ThinArrowToken>()?;
         let stmt = Expr0::parse(tokens)?;
-        let is_block = matches!(stmt.as_expr4(), Some(Expr4::Block(..)));
+        let is_block = matches!(stmt.as_expr_highest(), Some(ExprHighest::Block(..)));
         let semi = if is_block { None } else { Some(tokens.expected()?) };
 
         Ok(Self {
@@ -859,44 +876,20 @@ impl<'a> Parsable<'a> for On<'a> {
 impl<'a> Parsable<'a> for AnyLiteral<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            StringLiteral,
-            DecimalLiteral
+            StringLiteralToken,
+            DecimalLiteralToken,
+            TrueToken,
+            FalseToken
         )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         l_one!(tokens;
-            Self::String => StringLiteral,
-            Self::Decimal => DecimalLiteral
+            Self::String => StringLiteralToken,
+            Self::Decimal => DecimalLiteralToken,
+            Self::False => FalseToken,
+            Self::True => TrueToken
         )
-    }
-}
-
-impl<'a> Parsable<'a> for DecimalLiteral<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            DecimalLiteralToken
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        Ok(Self {
-            tok: tokens.expected()?,
-        })
-    }
-}
-
-impl<'a> Parsable<'a> for StringLiteral<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            StringLiteralToken
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        Ok(Self {
-            tok: tokens.expected()?,
-        })
     }
 }
 
@@ -927,10 +920,37 @@ impl<'a> Parsable<'a> for Expr0<'a> {
     }
 }
 
+impl<'a> Parsable<'a> for Expr2<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            Expr3
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        let mut left = Self::Expr(Expr3::parse(tokens)?);
+
+        loop {
+            if let Some(op) = tokens.get_eq()? {
+                left = Self::Equality(InfixOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(Parsable::parse(tokens)?),
+                    p: PhantomData,
+                });
+            }
+            else {
+                break;
+            }
+        }
+        return Ok(left);
+    }
+}
+
 impl<'a> Parsable<'a> for Expr1<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            Expr2
+            Expr3
         )
     }
 
@@ -954,15 +974,15 @@ impl<'a> Parsable<'a> for Expr1<'a> {
     }
 }
 
-impl<'a> Parsable<'a> for Expr2<'a> {
+impl<'a> Parsable<'a> for Expr3<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            Expr3
+            Expr4
         )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let mut left = Self::Expr(Expr3::parse(tokens)?);
+        let mut left = Self::Expr(Expr4::parse(tokens)?);
 
         loop {
             if let Some(op) = tokens.get_eq()? {
@@ -989,7 +1009,7 @@ impl<'a> Parsable<'a> for Expr2<'a> {
     }
 }
 
-impl<'a> Parsable<'a> for Expr3<'a> {
+impl<'a> Parsable<'a> for Expr4<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             ParentisedExpr,
@@ -1001,7 +1021,7 @@ impl<'a> Parsable<'a> for Expr3<'a> {
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let mut left = Self::Expr(Expr4::parse(tokens)?);
+        let mut left = Self::Expr(ExprHighest::parse(tokens)?);
 
         loop {
             if let Some(op) = tokens.get_eq()? {
@@ -1029,7 +1049,7 @@ impl<'a> Parsable<'a> for Expr3<'a> {
     }
 }
 
-impl<'a> Parsable<'a> for Expr4<'a> {
+impl<'a> Parsable<'a> for ExprHighest<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             ParentisedExpr,
@@ -1125,11 +1145,11 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
 
         let cond = Expr0::parse(tokens)?;
         let then: Expr0;
-        if matches!(cond.as_expr4(), Some(Expr4::Parentised(..))) {
+        if matches!(cond.as_expr_highest(), Some(ExprHighest::Parentised(..))) {
             then = Expr0::parse(tokens)?;
         }
         else {
-            then = Expr4::Block(BlockExpr::parse(tokens)?)
+            then = ExprHighest::Block(BlockExpr::parse(tokens)?)
                 .into();
         }
 
@@ -1138,10 +1158,10 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
             let tok = tokens.expected::<ElseToken>()?;
             let expr;
             if tokens.peek_eq(TokenType::If)?.is_some() {
-                expr = Expr4::If(Parsable::parse(tokens)?);
+                expr = ExprHighest::If(Parsable::parse(tokens)?);
             }
             else {
-                expr = Expr4::Block(Parsable::parse(tokens)?);
+                expr = ExprHighest::Block(Parsable::parse(tokens)?);
             }
             else_ = Some((tok, Box::new(expr.into())));
         }
@@ -1167,11 +1187,11 @@ impl<'a> Parsable<'a> for WhileExpr<'a> {
 
         let cond: Expr0<'a> = Expr0::parse(tokens)?;
         let do_: Expr0<'a>;
-        if matches!(cond.as_expr4(), Some(Expr4::Parentised(..))) {
+        if matches!(cond.as_expr_highest(), Some(ExprHighest::Parentised(..))) {
             do_ = Expr0::parse(tokens)?;
         }
         else {
-            do_ = Expr4::Block(BlockExpr::parse(tokens)?)
+            do_ = ExprHighest::Block(BlockExpr::parse(tokens)?)
                 .into();
         }
 
@@ -1195,6 +1215,36 @@ mod tests {
         let expr = Expr0::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "((5 + (5 / 5)) + (x * 5))");
+
+        Ok(())
+    }
+
+    #[test]
+    fn expr_if() -> Result<(), Box<dyn Error>> {
+        let mut tokens = TokenStream::new("if x == 10 { 5+5; }");
+        let expr = Expr0::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "if x == 10 {(5 + 5);}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn expr_if_else() -> Result<(), Box<dyn Error>> {
+        let mut tokens = TokenStream::new("if (a + 5) == 10 { 5+5 } else { 0 }");
+        let expr = Expr0::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "if ((a + 5)) == 10 {(5 + 5)} else {0}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn expr_if_else_if() -> Result<(), Box<dyn Error>> {
+        let mut tokens = TokenStream::new("if (a + 5) == 10 { 5+5 } else if true { 1 } else { 0 }");
+        let expr = Expr0::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "if ((a + 5)) == 10 {(5 + 5)} else if true {1} else {0}");
 
         Ok(())
     }

@@ -197,7 +197,8 @@ tokens!(
     Plus(PlusToken, "'+'"),
     Dash(DashToken, "'-'"),
     Star(StarToken, "'*'"),
-    Equal(EqualToken, "'='")
+    Equal(EqualToken, "'='"),
+    DoubleEqual(DoubleEqualToken, "'=='")
 );
 
 const ID_CHARS_START: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
@@ -387,6 +388,7 @@ impl<'a> Tokenizer<'a> {
             Some('-') => Ok(TokenType::Dash),
             Some('*') => Ok(TokenType::Star),
             Some('=') if self.take_char_if('>') => Ok(TokenType::FatArrow),
+            Some('=') if self.take_char_if('=') => Ok(TokenType::DoubleEqual),
             Some('=') => Ok(TokenType::Equal),
 
             c => Err(LexerError::UnexpectedCharError {
