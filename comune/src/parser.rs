@@ -1,7 +1,7 @@
 
 pub mod ast {
     use std::marker::PhantomData;
-    use std::ops::Deref;
+    use std::fmt::{ Debug, Display };
 
     use crate::lexer::*;
 
@@ -34,6 +34,26 @@ pub mod ast {
 
         pub stmts: Box<[(T, Sep)]>,
         pub last: Option<(Box<T>, Option<Sep>)>,
+    }
+
+    impl<'a, End, Sep, T> Display for SeparatedList<'a, End, Sep, T>
+        where End: KnownToken<'a> + Display,
+              Sep: KnownToken<'a> + Display,
+              T: Display
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for (t, sep) in self.stmts.iter() {
+                write!(f, "{t}{sep}");
+            }
+            if let Some((t, sep)) = &self.last {
+                write!(f, "{t}");
+                if let Some(sep) = sep {
+                    write!(f, "{sep}");
+                }
+            }
+
+            Ok(())
+        }
     }
 
     /// A Machine statement
@@ -129,11 +149,25 @@ pub mod ast {
 
     /// Operator in the infix form
     #[derive(Debug)]
-    pub struct InfixOp<'a, Left, Op: KnownToken<'a>, Right>{
+    pub struct InfixOp<'a, Left, Op: KnownToken<'a>, Right> {
         pub left: Box<Left>,
         pub op: Op,
         pub right: Box<Right>,
         pub p: PhantomData<*const &'a ()>,
+    }
+
+    impl<'a, Left, Op, Right> Display for InfixOp<'a, Left, Op, Right>
+        where Left: Display,
+              Op: KnownToken<'a> + Display,
+              Right: Display
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.left)?;
+            write!(f, " {} ", self.op)?;
+            write!(f, "{}", self.right)?;
+
+            Ok(())
+        }
     }
 
     /// An expression surrounded by parenthesis
@@ -142,6 +176,14 @@ pub mod ast {
         pub open: ParenOpenToken<'a>,
         pub expr: Box<Expr0<'a>>,
         pub close: ParenCloseToken<'a>,
+    }
+
+    impl<'a> Display for ParentisedExpr<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}{}{}", self.open, self.expr, self.close)?;
+
+            Ok(())
+        }
     }
 
     /// A list of expressions separated by semicolons and surrounded by 
@@ -153,6 +195,14 @@ pub mod ast {
         pub close: CurlyCloseToken<'a>,
     }
 
+    impl<'a> Display for BlockExpr<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}{}{}", self.open, self.exprs, self.close)?;
+
+            Ok(())
+        }
+    }
+    
     /// An if expression
     #[derive(Debug)]
     pub struct IfExpr<'a>{
@@ -160,6 +210,19 @@ pub mod ast {
         pub cond: Box<Expr0<'a>>,
         pub then: Box<Expr0<'a>>,
         pub else_: Option<(ElseToken<'a>, Box<Expr0<'a>>)>,
+    }
+
+    impl<'a> Display for IfExpr<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{} ", self.if_)?;
+            write!(f, "{} ", self.cond)?;
+            write!(f, "{} ", self.then)?;
+            if let Some((else_, expr)) = &self.else_ {
+                write!(f, "{else_}{expr}")?;
+            }
+
+            Ok(())
+        }
     }
 
     /// A while expression
@@ -170,11 +233,30 @@ pub mod ast {
         pub do_: Box<Expr0<'a>>,
     }
 
+    impl<'a> Display for WhileExpr<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.while_)?;
+            write!(f, " {} ", self.cond)?;
+            write!(f, "{}", self.do_)?;
+
+            Ok(())
+        }
+    }
+
     /// A literal value
     #[derive(Debug, From)]
     pub enum AnyLiteral<'a> {
         Decimal(DecimalLiteral<'a>),
         String(StringLiteral<'a>),
+    }
+
+    impl<'a> Display for AnyLiteral<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Decimal(e) => write!(f, "{e}"),
+                Self::String(e) => write!(f, "{e}"),
+            }
+        }
     }
 
     /// A decimal literal
@@ -183,10 +265,22 @@ pub mod ast {
         pub tok: DecimalLiteralToken<'a>,
     }
 
+    impl<'a> Display for DecimalLiteral<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.tok)
+        }
+    }
+
     /// A string literal
     #[derive(Debug, From)]
     pub struct StringLiteral<'a> {
         pub tok: StringLiteralToken<'a>,
+    }
+
+    impl<'a> Display for StringLiteral<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.tok)
+        }
     }
 
     /// An expression with highest precedence
@@ -204,6 +298,17 @@ pub mod ast {
                     => Some(e),
                 _ => None,
             }
+        }
+    }
+
+    impl<'a> Display for Expr0<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Expr(e) => write!(f, "{e}")?,
+                Self::BooleanOr(b) => write!(f, "({b})")?,
+            }
+
+            Ok(())
         }
     }
 
@@ -233,6 +338,17 @@ pub mod ast {
         BooleanAnd(InfixOp<'a, Expr1<'a>, DoubleAndToken<'a>, Expr2<'a>>),
     }
 
+    impl<'a> Display for Expr1<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Expr(e) => write!(f, "{e}")?,
+                Expr1::BooleanAnd(b) => write!(f, "({b})")?,
+            }
+
+            Ok(())
+        }
+    }
+
     impl<'a> From<Expr3<'a>> for Expr1<'a> {
         fn from(value: Expr3<'a>) -> Self {
             Self::Expr(value.into())
@@ -254,6 +370,18 @@ pub mod ast {
         Minus(InfixOp<'a, Expr2<'a>, DashToken<'a>, Expr3<'a>>),
     }
 
+    impl<'a> Display for Expr2<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Expr(e) => write!(f, "{e}")?,
+                Self::Plus(b) => write!(f, "({b})")?,
+                Self::Minus(b) => write!(f, "({b})")?,
+            }
+
+            Ok(())
+        }
+    }
+
     impl<'a> From<Expr4<'a>> for Expr2<'a> {
         fn from(value: Expr4<'a>) -> Self {
             Self::Expr(value.into())
@@ -269,6 +397,18 @@ pub mod ast {
         Divide(InfixOp<'a, Expr3<'a>, FSlashToken<'a>, Expr4<'a>>),
     }
 
+    impl<'a> Display for Expr3<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Expr(e) => write!(f, "{e}")?,
+                Self::Times(e) => write!(f, "({e})")?,
+                Self::Divide(e) => write!(f, "({e})")?,
+            }
+
+            Ok(())
+        }
+    }
+
     /// An expression with no binary operators
     /// Has the Times and Divide biary operators
     #[derive(Debug, From)]
@@ -279,6 +419,21 @@ pub mod ast {
         If(IfExpr<'a>),
         While(WhileExpr<'a>),
         Literal(AnyLiteral<'a>),
+    }
+
+    impl<'a> Display for Expr4<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Parentised(e) => write!(f, "{e}")?,
+                Self::Block(e) => write!(f, "{e}")?,
+                Self::Id(e) => write!(f, "{e}")?,
+                Self::If(e) => write!(f, "{e}")?,
+                Self::While(e) => write!(f, "{e}")?,
+                Self::Literal(e) => write!(f, "{e}")?,
+            }
+
+            Ok(())
+        }
     }
 }
 
@@ -1025,5 +1180,22 @@ impl<'a> Parsable<'a> for WhileExpr<'a> {
             cond: Box::new(cond),
             do_: Box::new(do_),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use super::*;
+
+    #[test]
+    fn expr_simple() -> Result<(), Box<dyn Error>> {
+        let mut tokens = TokenStream::new("5 + 5 / 5 + x * 5");
+        let expr = Expr0::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "((5 + (5 / 5)) + (x * 5))");
+
+        Ok(())
     }
 }

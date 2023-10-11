@@ -95,6 +95,12 @@ macro_rules! tokens {
             pub pos: TokenPosition,
         }
 
+        impl<'a> Display for $tname<'a> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.content)
+            }
+        }
+
         impl<'a> Token<'a> for $tname<'a> {
             type Static = $tname<'static>;
 
@@ -425,7 +431,7 @@ impl<'a> Iterator for Tokenizer<'a> {
         Some(Ok(GenericToken {
             kind,
             content,
-            pos: TokenPosition { row: self.row, col: self.col }
+            pos: TokenPosition { row, col }
         }))
     }
 }
@@ -524,8 +530,8 @@ mod tests {
 data on state = 123456 + 031.4
         ";
 
-        for t in Tokenizer::new(SRC) {
-            println!("{t:?}");
+        for (i, t) in Tokenizer::new(SRC).enumerate() {
+            println!("{i:02} : {t:?}");
         }
 
         let mut tokens = Tokenizer::new(SRC);
