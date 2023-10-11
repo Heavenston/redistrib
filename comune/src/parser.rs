@@ -1,6 +1,7 @@
 
 pub mod ast {
     use std::marker::PhantomData;
+    use std::ops::Deref;
 
     use crate::lexer::*;
 
@@ -83,6 +84,7 @@ pub mod ast {
         pub src_expr: Expr0<'a>,
         pub thin_arrow: ThinArrowToken<'a>,
         pub stmt: Expr0<'a>,
+        pub semi: Option<SemiColonToken<'a>>,
     }
 
     /// A state-data statement
@@ -193,6 +195,16 @@ pub mod ast {
     pub enum Expr0<'a> {
         Expr(Expr1<'a>),
         BooleanOr(InfixOp<'a, Expr0<'a>, DoubleVBarToken<'a>, Expr1<'a>>),
+    }
+
+    impl<'a> Expr0<'a> {
+        pub fn as_expr4(&self) -> Option<&'_ Expr4<'a>> {
+            match self {
+                Self::Expr(Expr1::Expr(Expr2::Expr(Expr3::Expr(e))))
+                    => Some(e),
+                _ => None,
+            }
+        }
     }
 
     impl<'a> From<Expr2<'a>> for Expr0<'a> {
@@ -609,12 +621,15 @@ impl<'a> Parsable<'a> for Dyn<'a> {
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         let src_expr = Expr0::parse(tokens)?;
         let thin_arrow = tokens.expected::<ThinArrowToken>()?;
-        let stmt = todo!();
+        let stmt = Expr0::parse(tokens)?;
+        let is_block = matches!(stmt.as_expr4(), Some(Expr4::Block(..)));
+        let semi = if is_block { None } else { Some(tokens.expected()?) };
 
         Ok(Self {
             src_expr,
             thin_arrow,
             stmt,
+            semi,
         })
     }
 }
@@ -953,15 +968,12 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         let if_ = tokens.expected::<IfToken>()?;
 
-        let cond: Expr0;
+        let cond = Expr0::parse(tokens)?;
         let then: Expr0;
-        if tokens.peek_eq(TokenType::ParenOpen)?.is_some() {
-            cond = Expr4::Parentised(ParentisedExpr::parse(tokens)?)
-                .into();
+        if matches!(cond.as_expr4(), Some(Expr4::Parentised(..))) {
             then = Expr0::parse(tokens)?;
         }
         else {
-            cond = Expr0::parse(tokens)?;
             then = Expr4::Block(BlockExpr::parse(tokens)?)
                 .into();
         }
@@ -998,15 +1010,12 @@ impl<'a> Parsable<'a> for WhileExpr<'a> {
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         let while_ = tokens.expected()?;
 
-        let cond: Expr0<'a>;
+        let cond: Expr0<'a> = Expr0::parse(tokens)?;
         let do_: Expr0<'a>;
-        if tokens.peek_eq(TokenType::ParenOpen)?.is_some() {
-            cond = Expr4::Parentised(ParentisedExpr::parse(tokens)?)
-                .into();
+        if matches!(cond.as_expr4(), Some(Expr4::Parentised(..))) {
             do_ = Expr0::parse(tokens)?;
         }
         else {
-            cond = Expr0::parse(tokens)?;
             do_ = Expr4::Block(BlockExpr::parse(tokens)?)
                 .into();
         }
