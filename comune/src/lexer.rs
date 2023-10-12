@@ -183,7 +183,9 @@ tokens!(
     BracketOpen(BracketOpenToken, "'['"),
     BracketClose(BracketCloseToken, "']'"),
     CaretOpen(CaretOpenToken, "'<'"),
+    CaretOpenEqual(CaretOpenEqualToken, "'<='"),
     CaretClose(CaretCloseToken, "'>'"),
+    CaretCloseEqual(CaretCloseEqualToken, "'>='"),
     Colon(ColonToken, "':'"),
     Coma(ComaToken, "','"),
     SemiColon(SemiColonToken, "';'"),
@@ -363,8 +365,13 @@ impl<'a> Tokenizer<'a> {
             Some(')') => Ok(TokenType::ParenClose),
             Some('[') => Ok(TokenType::BracketOpen),
             Some(']') => Ok(TokenType::BracketClose),
+
+            Some('<') if self.take_char_if('=') => Ok(TokenType::CaretOpenEqual),
             Some('<') => Ok(TokenType::CaretOpen),
+
+            Some('>') if self.take_char_if('=') => Ok(TokenType::CaretCloseEqual),
             Some('>') => Ok(TokenType::CaretClose),
+
             Some('/') => Ok(TokenType::FSlash),
             Some('\\') => Ok(TokenType::BSlash),
             Some('!') => Ok(TokenType::Bang),

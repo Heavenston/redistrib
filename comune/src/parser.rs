@@ -434,6 +434,10 @@ pub mod ast {
         BooleanAnd(InfixOp<'a, Expr<'a>, DoubleAndToken<'a>, Expr<'a>>),
 
         Equality(InfixOp<'a, Expr<'a>, DoubleEqualToken<'a>, Expr<'a>>),
+        Greater(InfixOp<'a, Expr<'a>, CaretCloseToken<'a>, Expr<'a>>),
+        GreaterEqual(InfixOp<'a, Expr<'a>, CaretCloseEqualToken<'a>, Expr<'a>>),
+        Lower(InfixOp<'a, Expr<'a>, CaretOpenToken<'a>, Expr<'a>>),
+        LowerEqual(InfixOp<'a, Expr<'a>, CaretOpenEqualToken<'a>, Expr<'a>>),
 
         Plus(InfixOp<'a, Expr<'a>, PlusToken<'a>, Expr<'a>>),
         Minus(InfixOp<'a, Expr<'a>, DashToken<'a>, Expr<'a>>),
@@ -463,6 +467,10 @@ pub mod ast {
                 Self::BooleanOr(e) => write!(f, "({e})")?,
                 Self::BooleanAnd(e) => write!(f, "({e})")?,
                 Self::Equality(e) => write!(f, "({e})")?,
+                Self::Greater(e) => write!(f, "({e})")?,
+                Self::GreaterEqual(e) => write!(f, "({e})")?,
+                Self::Lower(e) => write!(f, "({e})")?,
+                Self::LowerEqual(e) => write!(f, "({e})")?,
                 Self::Plus(e) => write!(f, "({e})")?,
                 Self::Minus(e) => write!(f, "({e})")?,
                 Self::Times(e) => write!(f, "({e})")?,
@@ -975,6 +983,38 @@ impl<'a> Expr<'a> {
                         p: PhantomData,
                     })
                 }
+                Some(TokenType::CaretOpen) if precedence == 3 => {
+                    left = Self::Lower(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
+                        p: PhantomData,
+                    })
+                }
+                Some(TokenType::CaretOpenEqual) if precedence == 3 => {
+                    left = Self::LowerEqual(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
+                        p: PhantomData,
+                    })
+                }
+                Some(TokenType::CaretClose) if precedence == 3 => {
+                    left = Self::Greater(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
+                        p: PhantomData,
+                    })
+                }
+                Some(TokenType::CaretCloseEqual) if precedence == 3 => {
+                    left = Self::GreaterEqual(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
+                        p: PhantomData,
+                    })
+                }
 
                 Some(TokenType::Plus) if precedence == 4 => {
                     left = Self::Plus(InfixOp {
@@ -1254,7 +1294,7 @@ mod tests {
 
                 =increment> second;
 
-                reveived == 10 -> {};
+                reveived >= 10 -> {};
 
                 on message(sender u32) {
                     a = 10;
@@ -1269,7 +1309,7 @@ mod tests {
         let mut tokens = TokenStream::new(src);
         let expr = Machine::parse(&mut tokens)?;
 
-        assert_eq!(format!("{expr}"), "machine name { initial state first { data {name string,id u32,mut received i32} =increment> second; (reveived == 10) -> {}; on message (sender u32) {(a = 10);} } state second { =decrement> first; } }");
+        assert_eq!(format!("{expr}"), "machine name { initial state first { data {name string,id u32,mut received i32} =increment> second; (reveived >= 10) -> {}; on message (sender u32) {(a = 10);} } state second { =decrement> first; } }");
 
         Ok(())
     }
