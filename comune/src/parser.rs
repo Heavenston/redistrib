@@ -84,15 +84,27 @@ pub mod ast {
         }
     }
 
-    /// A Machine statement
+    /// A Machine declaration
+    /// Ex:
+    /// ```
+    /// machine test {
+    ///     initial state init {
+    ///        [...]
+    ///     }
+    ///
+    ///     state second {
+    ///        [...]
+    ///     }
+    /// }
+    /// ```
     #[derive(Debug)]
-    pub struct Machine<'a> {
+    pub struct MachineDeclaration<'a> {
         pub machine_token: MachineToken<'a>,
         pub id: IdenToken<'a>,
         pub stmts: StmtContainer<'a, MachineToken<'a>, MachineStmt<'a>>,
     }
 
-    impl<'a> Display for Machine<'a> {
+    impl<'a> Display for MachineDeclaration<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{} ", self.machine_token)?;
             write!(f, "{} ", self.id)?;
@@ -105,12 +117,14 @@ pub mod ast {
     /// Statements that go into a Machine
     #[derive(Debug, From)]
     pub enum MachineStmt<'a> {
-        State(State<'a>),
+        Declaration(Declaration<'a>),
+        State(StateDeclaration<'a>),
     }
 
     impl<'a> Display for MachineStmt<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
+                MachineStmt::Declaration(s) => write!(f, "{s}")?,
                 MachineStmt::State(s) => write!(f, "{s}")?,
             }
 
@@ -118,16 +132,16 @@ pub mod ast {
         }
     }
 
-    /// A State statement
+    /// A State declaration
     #[derive(Debug)]
-    pub struct State<'a> {
+    pub struct StateDeclaration<'a> {
         pub initial_token: Option<InitialToken<'a>>,
         pub state_token: StateToken<'a>,
         pub id: IdenToken<'a>,
         pub stmts: StmtContainer<'a, StateToken<'a>, StateStmt<'a>>,
     }
 
-    impl<'a> Display for State<'a> {
+    impl<'a> Display for StateDeclaration<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             if let Some(initial) = &self.initial_token {
                 write!(f, "{} ", initial)?;
@@ -143,6 +157,7 @@ pub mod ast {
     /// Statements that go into a State
     #[derive(Debug, From)]
     pub enum StateStmt<'a> {
+        Declaration(Declaration<'a>),
         Transition(StateTransition<'a>),
         Dyn(Dyn<'a>),
         Data(Data<'a>),
@@ -152,6 +167,7 @@ pub mod ast {
     impl<'a> Display for StateStmt<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
+                Self::Declaration(e) => write!(f, "{e}")?,
                 Self::Transition(e) => write!(f, "{e}")?,
                 Self::Dyn(e) => write!(f, "{e}")?,
                 Self::Data(e) => write!(f, "{e}")?,
@@ -183,6 +199,22 @@ pub mod ast {
             Ok(())
         }
     }
+
+    #[derive(Debug, From)]
+    pub enum Declaration<'a> {
+        Machine(MachineDeclaration<'a>),
+    }
+    
+    impl<'a> Display for Declaration<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Machine(m) => write!(f, "{m}")?,
+            }
+
+            Ok(())
+        }
+    }
+
 
     /// A dynamic statement
     #[derive(Debug)]
@@ -731,7 +763,7 @@ impl<'a, End: KnownToken<'a>, Sep: KnownToken<'a>, T: Parsable<'a>> Parsable<'a>
     }
 }
 
-impl<'a> Parsable<'a> for Machine<'a> {
+impl<'a> Parsable<'a> for MachineDeclaration<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         [TokenType::Machine].into_iter()
     }
@@ -741,7 +773,7 @@ impl<'a> Parsable<'a> for Machine<'a> {
         let id = tokens.expected::<IdenToken>()?;
         let stmts = StmtContainer::parse(tokens)?;
 
-        Ok(Machine {
+        Ok(MachineDeclaration {
             machine_token,
             id,
             stmts,
@@ -752,18 +784,20 @@ impl<'a> Parsable<'a> for Machine<'a> {
 impl<'a> Parsable<'a> for MachineStmt<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            State
+            Declaration,
+            StateDeclaration
         )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         l_one!(tokens;
-            Self::State => State
+            Self::Declaration => Declaration,
+            Self::State => StateDeclaration
         )
     }
 }
 
-impl<'a> Parsable<'a> for State<'a> {
+impl<'a> Parsable<'a> for StateDeclaration<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             InitialToken,
@@ -777,7 +811,7 @@ impl<'a> Parsable<'a> for State<'a> {
         let id = tokens.expected::<IdenToken>()?;
         let stmts = StmtContainer::parse(tokens)?;
 
-        Ok(State {
+        Ok(StateDeclaration {
             initial_token,
             state_token,
             id,
@@ -789,6 +823,7 @@ impl<'a> Parsable<'a> for State<'a> {
 impl<'a> Parsable<'a> for StateStmt<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
+            Declaration,
             StateTransition,
             Data,
             On,
@@ -797,9 +832,9 @@ impl<'a> Parsable<'a> for StateStmt<'a> {
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        l_one!(
-            tokens;
+        l_one!(tokens;
 
+            Self::Declaration => Declaration,
             Self::Transition => StateTransition,
             Self::Data => Data,
             Self::On => On,
@@ -829,6 +864,20 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
             target_id,
             semi
         })
+    }
+}
+
+impl<'a> Parsable<'a> for Declaration<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            MachineDeclaration
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        l_one!(tokens;
+            Self::Machine => MachineDeclaration
+        )
     }
 }
 
@@ -1309,9 +1358,33 @@ mod tests {
         }
         "#;
         let mut tokens = TokenStream::new(src);
-        let expr = Machine::parse(&mut tokens)?;
+        let expr = MachineDeclaration::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "machine name { initial state first { data {name string,id u32,mut received i32} =increment> second; (reveived >= 10) -> {}; on message (sender u32) {(a = 10);} } state second { =decrement> first; } }");
+
+        Ok(())
+    }
+
+    #[test]
+    fn machine_in_machine() -> Result<(), Box<dyn Error>> {
+        let src = r#"
+        machine name {
+            machine inner {
+
+            }
+
+            initial state first {
+                machine even_more_inner {
+                }
+
+                data {}
+            }
+        }
+        "#;
+        let mut tokens = TokenStream::new(src);
+        let expr = MachineDeclaration::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "machine name { machine inner { } initial state first { machine even_more_inner { } data {} } }");
 
         Ok(())
     }
