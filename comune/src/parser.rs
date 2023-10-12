@@ -946,112 +946,49 @@ impl<'a> Expr<'a> {
 
         let mut left = Self::expr_parse(tokens, precedence + 1)?;
 
-        loop {
-            match tokens.peek()?.map(|t| t.kind) {
-                Some(TokenType::Equal) if precedence == 0 => {
-                    left = Self::Assignment(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })
-                }
+        use TokenType as TT;
 
-                Some(TokenType::DoubleVBar) if precedence == 1 => {
-                    left = Self::BooleanOr(InfixOp {
+        macro_rules! take_precedence {
+            ($($tt:path => $k:path [$p:expr]),*; _ => break,) => {
+                match tokens.peek()?.map(|t| t.kind) {
+                $(Some($tt) if precedence == $p => {
+                    left = $k(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
                         right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })
-                }
-
-                Some(TokenType::DoubleAnd) if precedence == 2 => {
-                    left = Self::BooleanAnd(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })
-                }
-
-                Some(TokenType::DoubleEqual) if precedence == 3 => {
-                    left = Self::Equality(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })
-                }
-                Some(TokenType::CaretOpen) if precedence == 3 => {
-                    left = Self::Lower(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })
-                }
-                Some(TokenType::CaretOpenEqual) if precedence == 3 => {
-                    left = Self::LowerEqual(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })
-                }
-                Some(TokenType::CaretClose) if precedence == 3 => {
-                    left = Self::Greater(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })
-                }
-                Some(TokenType::CaretCloseEqual) if precedence == 3 => {
-                    left = Self::GreaterEqual(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })
-                }
-
-                Some(TokenType::Plus) if precedence == 4 => {
-                    left = Self::Plus(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })
-                }
-                Some(TokenType::Dash) if precedence == 4 => {
-                    left = Self::Minus(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })        
-                }
-
-                Some(TokenType::Star) if precedence == 5 => {
-                    left = Self::Times(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })                
-                }
-                Some(TokenType::FSlash) if precedence == 5 => {
-                    left = Self::Divide(InfixOp {
-                        left: Box::new(left),
-                        op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
-                        p: PhantomData,
-                    })                        
-                }
+                },)*
 
                 _ => break,
-            }
+                }
+            };
+        }
+
+        loop {
+            // If the next token is the specified token and the precedence
+            // matches, continue the left-associated operation
+            take_precedence!(
+                TT::Equal           => Self::Assignment   [0],
+
+                TT::DoubleVBar      => Self::BooleanOr    [1],
+
+                TT::DoubleAnd       => Self::BooleanAnd   [2],
+
+                TT::DoubleEqual     => Self::Equality     [3],
+                TT::CaretOpen       => Self::Lower        [3],
+                TT::CaretOpenEqual  => Self::LowerEqual   [3],
+                TT::CaretClose      => Self::Greater      [3],
+                TT::CaretCloseEqual => Self::GreaterEqual [3],
+
+                TT::Plus            => Self::Plus         [4],
+                TT::Dash            => Self::Minus        [4],
+
+                TT::Star            => Self::Times        [5],
+                TT::FSlash          => Self::Divide       [5];
+
+                _ => break,
+            )
         }
         return Ok(left);
     }
