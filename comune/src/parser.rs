@@ -782,7 +782,7 @@ impl<'a> Expr<'a> {
                     left = Self::Assignment(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })
                 }
@@ -791,7 +791,7 @@ impl<'a> Expr<'a> {
                     left = Self::BooleanOr(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })
                 }
@@ -800,7 +800,7 @@ impl<'a> Expr<'a> {
                     left = Self::BooleanAnd(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })
                 }
@@ -809,7 +809,7 @@ impl<'a> Expr<'a> {
                     left = Self::Equality(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })
                 }
@@ -818,7 +818,7 @@ impl<'a> Expr<'a> {
                     left = Self::Plus(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })
                 }
@@ -826,7 +826,7 @@ impl<'a> Expr<'a> {
                     left = Self::Minus(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })        
                 }
@@ -835,7 +835,7 @@ impl<'a> Expr<'a> {
                     left = Self::Times(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })                
                 }
@@ -843,7 +843,7 @@ impl<'a> Expr<'a> {
                     left = Self::Divide(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
-                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
                     })                        
                 }
@@ -1007,7 +1007,7 @@ mod tests {
         let mut tokens = TokenStream::new("5 + 5 / 5 + x * 5");
         let expr = Expr::parse(&mut tokens)?;
 
-        assert_eq!(format!("{expr}"), "(5 + (5 / 5)) + (x * 5)");
+        assert_eq!(format!("{expr}"), "((5 + (5 / 5)) + (x * 5))");
 
         Ok(())
     }
