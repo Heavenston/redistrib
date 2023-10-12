@@ -101,9 +101,9 @@ pub mod ast {
     /// A dynamic statement
     #[derive(Debug)]
     pub struct Dyn<'a> {
-        pub src_expr: Expr0<'a>,
+        pub src_expr: Expr<'a>,
         pub thin_arrow: ThinArrowToken<'a>,
-        pub stmt: Expr0<'a>,
+        pub stmt: Expr<'a>,
         pub semi: Option<SemiColonToken<'a>>,
     }
 
@@ -174,7 +174,7 @@ pub mod ast {
     #[derive(Debug)]
     pub struct ParentisedExpr<'a>{
         pub open: ParenOpenToken<'a>,
-        pub expr: Box<Expr0<'a>>,
+        pub expr: Box<Expr<'a>>,
         pub close: ParenCloseToken<'a>,
     }
 
@@ -191,7 +191,7 @@ pub mod ast {
     #[derive(Debug)]
     pub struct BlockExpr<'a> {
         pub open: CurlyOpenToken<'a>,
-        pub exprs: SeparatedList<'a, CurlyCloseToken<'a>, SemiColonToken<'a>, Expr0<'a>>,
+        pub exprs: SeparatedList<'a, CurlyCloseToken<'a>, SemiColonToken<'a>, Expr<'a>>,
         pub close: CurlyCloseToken<'a>,
     }
 
@@ -207,9 +207,9 @@ pub mod ast {
     #[derive(Debug)]
     pub struct IfExpr<'a>{
         pub if_: IfToken<'a>,
-        pub cond: Box<Expr0<'a>>,
-        pub then: Box<Expr0<'a>>,
-        pub else_: Option<(ElseToken<'a>, Box<Expr0<'a>>)>,
+        pub cond: Box<Expr<'a>>,
+        pub then: Box<Expr<'a>>,
+        pub else_: Option<(ElseToken<'a>, Box<Expr<'a>>)>,
     }
 
     impl<'a> Display for IfExpr<'a> {
@@ -229,8 +229,8 @@ pub mod ast {
     #[derive(Debug)]
     pub struct WhileExpr<'a>{
         pub while_: WhileToken<'a>,
-        pub cond: Box<Expr0<'a>>,
-        pub do_: Box<Expr0<'a>>,
+        pub cond: Box<Expr<'a>>,
+        pub do_: Box<Expr<'a>>,
     }
 
     impl<'a> Display for WhileExpr<'a> {
@@ -263,173 +263,24 @@ pub mod ast {
         }
     }
 
-    /// An expression with highest precedence
+    /// An expression with intemediate precedance
     /// Has the BooleanOr binary operator
     #[derive(Debug, From)]
-    pub enum Expr0<'a> {
-        Expr(Expr1<'a>),
-        BooleanOr(InfixOp<'a, Expr0<'a>, DoubleVBarToken<'a>, Expr1<'a>>),
-    }
+    pub enum Expr<'a> {
+        Assignment(InfixOp<'a, Expr<'a>, EqualToken<'a>, Expr<'a>>),
 
-    impl<'a> Expr0<'a> {
-        pub fn as_expr_highest(&self) -> Option<&'_ ExprHighest<'a>> {
-            match self {
-                Self::Expr(Expr1::Expr(Expr2::Expr(Expr3::Expr(Expr4::Expr(e)))))
-                    => Some(e),
-                _ => None,
-            }
-        }
-    }
+        BooleanOr(InfixOp<'a, Expr<'a>, DoubleVBarToken<'a>, Expr<'a>>),
 
-    impl<'a> Display for Expr0<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::Expr(e) => write!(f, "{e}")?,
-                Self::BooleanOr(b) => write!(f, "({b})")?,
-            }
+        BooleanAnd(InfixOp<'a, Expr<'a>, DoubleAndToken<'a>, Expr<'a>>),
 
-            Ok(())
-        }
-    }
+        Equality(InfixOp<'a, Expr<'a>, DoubleEqualToken<'a>, Expr<'a>>),
 
-    impl<'a> From<Expr3<'a>> for Expr0<'a> {
-        fn from(value: Expr3<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
+        Plus(InfixOp<'a, Expr<'a>, PlusToken<'a>, Expr<'a>>),
+        Minus(InfixOp<'a, Expr<'a>, DashToken<'a>, Expr<'a>>),
 
-    impl<'a> From<Expr4<'a>> for Expr0<'a> {
-        fn from(value: Expr4<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
+        Times(InfixOp<'a, Expr<'a>, StarToken<'a>, Expr<'a>>),
+        Divide(InfixOp<'a, Expr<'a>, FSlashToken<'a>, Expr<'a>>),
 
-    impl<'a> From<ExprHighest<'a>> for Expr0<'a> {
-        fn from(value: ExprHighest<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
-
-    /// An expression with intemediate precedance
-    /// Has the BooleanAnd binary operator
-    #[derive(Debug, From)]
-    pub enum Expr1<'a> {
-        Expr(Expr2<'a>),
-        BooleanAnd(InfixOp<'a, Expr1<'a>, DoubleAndToken<'a>, Expr2<'a>>),
-    }
-
-    impl<'a> Display for Expr1<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::Expr(e) => write!(f, "{e}")?,
-                Expr1::BooleanAnd(b) => write!(f, "({b})")?,
-            }
-
-            Ok(())
-        }
-    }
-
-    impl<'a> From<Expr3<'a>> for Expr1<'a> {
-        fn from(value: Expr3<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
-
-    impl<'a> From<Expr4<'a>> for Expr1<'a> {
-        fn from(value: Expr4<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
-
-    impl<'a> From<ExprHighest<'a>> for Expr1<'a> {
-        fn from(value: ExprHighest<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
-
-    /// An expression with intemediate precedance
-    /// Has the comparisons operators
-    #[derive(Debug, From)]
-    pub enum Expr2<'a> {
-        Expr(Expr3<'a>),
-        Equality(InfixOp<'a, Expr2<'a>, DoubleEqualToken<'a>, Expr3<'a>>),
-    }
-
-    impl<'a> Display for Expr2<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::Expr(e) => write!(f, "{e}")?,
-                Self::Equality(e) => write!(f, "{e}")?,
-            }
-
-            Ok(())
-        }
-    }
-
-    impl<'a> From<Expr4<'a>> for Expr2<'a> {
-        fn from(value: Expr4<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
-
-    impl<'a> From<ExprHighest<'a>> for Expr2<'a> {
-        fn from(value: ExprHighest<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
-
-    /// An expression with intemediate precedance
-    /// Has the Plus and Minus binary operators
-    #[derive(Debug, From)]
-    pub enum Expr3<'a> {
-        Expr(Expr4<'a>),
-        Plus(InfixOp<'a, Expr3<'a>, PlusToken<'a>, Expr4<'a>>),
-        Minus(InfixOp<'a, Expr3<'a>, DashToken<'a>, Expr4<'a>>),
-    }
-
-    impl<'a> Display for Expr3<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::Expr(e) => write!(f, "{e}")?,
-                Self::Plus(b) => write!(f, "({b})")?,
-                Self::Minus(b) => write!(f, "({b})")?,
-            }
-
-            Ok(())
-        }
-    }
-
-    impl<'a> From<ExprHighest<'a>> for Expr3<'a> {
-        fn from(value: ExprHighest<'a>) -> Self {
-            Self::Expr(value.into())
-        }
-    }
-
-    /// An expression with lowest precedance
-    /// Has the Times and Divide biary operators
-    #[derive(Debug, From)]
-    pub enum Expr4<'a> {
-        Expr(ExprHighest<'a>),
-        Times(InfixOp<'a, Expr4<'a>, StarToken<'a>, ExprHighest<'a>>),
-        Divide(InfixOp<'a, Expr4<'a>, FSlashToken<'a>, ExprHighest<'a>>),
-    }
-
-    impl<'a> Display for Expr4<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::Expr(e) => write!(f, "{e}")?,
-                Self::Times(e) => write!(f, "({e})")?,
-                Self::Divide(e) => write!(f, "({e})")?,
-            }
-
-            Ok(())
-        }
-    }
-
-    /// An expression with no binary operators
-    /// Has the Times and Divide biary operators
-    #[derive(Debug, From)]
-    pub enum ExprHighest<'a> {
         Parentised(ParentisedExpr<'a>),
         Block(BlockExpr<'a>),
         Id(IdenToken<'a>),
@@ -438,7 +289,7 @@ pub mod ast {
         Literal(AnyLiteral<'a>),
     }
 
-    impl<'a> Display for ExprHighest<'a> {
+    impl<'a> Display for Expr<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Parentised(e) => write!(f, "{e}")?,
@@ -447,6 +298,15 @@ pub mod ast {
                 Self::If(e) => write!(f, "{e}")?,
                 Self::While(e) => write!(f, "{e}")?,
                 Self::Literal(e) => write!(f, "{e}")?,
+
+                Self::Assignment(e) => write!(f, "({e})")?,
+                Self::BooleanOr(e) => write!(f, "({e})")?,
+                Self::BooleanAnd(e) => write!(f, "({e})")?,
+                Self::Equality(e) => write!(f, "{e}")?,
+                Self::Plus(e) => write!(f, "({e})")?,
+                Self::Minus(e) => write!(f, "({e})")?,
+                Self::Times(e) => write!(f, "({e})")?,
+                Self::Divide(e) => write!(f, "({e})")?,
             }
 
             Ok(())
@@ -786,15 +646,15 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
 impl<'a> Parsable<'a> for Dyn<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            Expr0
+            Expr
         )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let src_expr = Expr0::parse(tokens)?;
+        let src_expr = Expr::parse(tokens)?;
         let thin_arrow = tokens.expected::<ThinArrowToken>()?;
-        let stmt = Expr0::parse(tokens)?;
-        let is_block = matches!(stmt.as_expr_highest(), Some(ExprHighest::Block(..)));
+        let stmt = Expr::parse(tokens)?;
+        let is_block = matches!(stmt, Expr::Block(..));
         let semi = if is_block { None } else { Some(tokens.expected()?) };
 
         Ok(Self {
@@ -893,174 +753,10 @@ impl<'a> Parsable<'a> for AnyLiteral<'a> {
     }
 }
 
-impl<'a> Parsable<'a> for Expr0<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            Expr1
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let mut left = Self::Expr(Expr1::parse(tokens)?);
-
-        loop {
-            if let Some(op) = tokens.get_eq()? {
-                left = Self::BooleanOr(InfixOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(Parsable::parse(tokens)?),
-                    p: PhantomData,
-                });
-            }
-            else {
-                break;
-            }
-        }
-        return Ok(left);
-    }
-}
-
-impl<'a> Parsable<'a> for Expr2<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            Expr3
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let mut left = Self::Expr(Expr3::parse(tokens)?);
-
-        loop {
-            if let Some(op) = tokens.get_eq()? {
-                left = Self::Equality(InfixOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(Parsable::parse(tokens)?),
-                    p: PhantomData,
-                });
-            }
-            else {
-                break;
-            }
-        }
-        return Ok(left);
-    }
-}
-
-impl<'a> Parsable<'a> for Expr1<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            Expr3
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let mut left = Self::Expr(Expr2::parse(tokens)?);
-
-        loop {
-            if let Some(op) = tokens.get_eq()? {
-                left = Self::BooleanAnd(InfixOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(Parsable::parse(tokens)?),
-                    p: PhantomData,
-                });
-            }
-            else {
-                break;
-            }
-        }
-        return Ok(left);
-    }
-}
-
-impl<'a> Parsable<'a> for Expr3<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            Expr4
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let mut left = Self::Expr(Expr4::parse(tokens)?);
-
-        loop {
-            if let Some(op) = tokens.get_eq()? {
-                left = Self::Plus(InfixOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(Parsable::parse(tokens)?),
-                    p: PhantomData,
-                });
-            }
-            else if let Some(op) = tokens.get_eq()? {
-                left = Self::Minus(InfixOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(Parsable::parse(tokens)?),
-                    p: PhantomData,
-                });
-            }
-            else {
-                break;
-            }
-        }
-        return Ok(left);
-    }
-}
-
-impl<'a> Parsable<'a> for Expr4<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            ParentisedExpr,
-            BlockExpr,
-            IfExpr,
-            WhileExpr,
-            AnyLiteral
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let mut left = Self::Expr(ExprHighest::parse(tokens)?);
-
-        loop {
-            if let Some(op) = tokens.get_eq()? {
-                left = Self::Times(InfixOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(Parsable::parse(tokens)?),
-                    p: PhantomData,
-                });
-            }
-            else if let Some(op) = tokens.get_eq()? {
-                left = Self::Divide(InfixOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(Parsable::parse(tokens)?),
-                    p: PhantomData,
-                });
-            }
-            else {
-                break;
-            }
-        }
-
-        Ok(left)
-    }
-}
-
-impl<'a> Parsable<'a> for ExprHighest<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            ParentisedExpr,
-            BlockExpr,
-            IfExpr,
-            WhileExpr,
-            AnyLiteral
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+impl<'a> Expr<'a> {
+    fn bottom_parse(
+        tokens: &mut TokenStream<'a>
+    ) -> Result<Self, ParserError> {
         l_one!(tokens;
             Self::Parentised => ParentisedExpr,
             Self::Block => BlockExpr,
@@ -1069,6 +765,103 @@ impl<'a> Parsable<'a> for ExprHighest<'a> {
             Self::While => WhileExpr,
             Self::Literal => AnyLiteral
         )
+    }
+
+    fn expr_parse(
+        tokens: &mut TokenStream<'a>, precedence: usize
+    ) -> Result<Self, ParserError> {
+        if precedence >= 6 {
+            return Self::bottom_parse(tokens);
+        }
+
+        let mut left = Self::expr_parse(tokens, precedence + 1)?;
+
+        loop {
+            match tokens.peek()?.map(|t| t.kind) {
+                Some(TokenType::Equal) if precedence == 0 => {
+                    left = Self::Assignment(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        p: PhantomData,
+                    })
+                }
+
+                Some(TokenType::DoubleVBar) if precedence == 1 => {
+                    left = Self::BooleanOr(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        p: PhantomData,
+                    })
+                }
+
+                Some(TokenType::DoubleAnd) if precedence == 2 => {
+                    left = Self::BooleanAnd(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        p: PhantomData,
+                    })
+                }
+
+                Some(TokenType::DoubleEqual) if precedence == 3 => {
+                    left = Self::Equality(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        p: PhantomData,
+                    })
+                }
+
+                Some(TokenType::Plus) if precedence == 4 => {
+                    left = Self::Plus(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        p: PhantomData,
+                    })
+                }
+                Some(TokenType::Dash) if precedence == 4 => {
+                    left = Self::Minus(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        p: PhantomData,
+                    })        
+                }
+
+                Some(TokenType::Star) if precedence == 5 => {
+                    left = Self::Times(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        p: PhantomData,
+                    })                
+                }
+                Some(TokenType::FSlash) if precedence == 5 => {
+                    left = Self::Divide(InfixOp {
+                        left: Box::new(left),
+                        op: tokens.expected()?,
+                        right: Box::new(Expr::expr_parse(tokens, precedence)?),
+                        p: PhantomData,
+                    })                        
+                }
+
+                _ => break,
+            }
+        }
+        return Ok(left);
+    }
+}
+
+impl<'a> Parsable<'a> for Expr<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!()
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        Self::expr_parse(tokens, 0)
     }
 }
 
@@ -1143,25 +936,25 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         let if_ = tokens.expected::<IfToken>()?;
 
-        let cond = Expr0::parse(tokens)?;
-        let then: Expr0;
-        if matches!(cond.as_expr_highest(), Some(ExprHighest::Parentised(..))) {
-            then = Expr0::parse(tokens)?;
+        let cond = Expr::parse(tokens)?;
+        let then: Expr;
+        if matches!(cond, Expr::Parentised(..)) {
+            then = Expr::parse(tokens)?;
         }
         else {
-            then = ExprHighest::Block(BlockExpr::parse(tokens)?)
+            then = Expr::Block(BlockExpr::parse(tokens)?)
                 .into();
         }
 
-        let mut else_ = None::<(ElseToken<'a>, Box<Expr0<'a>>)>;
+        let mut else_ = None::<(ElseToken<'a>, Box<Expr<'a>>)>;
         if tokens.peek_eq(TokenType::Else)?.is_some() {
             let tok = tokens.expected::<ElseToken>()?;
             let expr;
             if tokens.peek_eq(TokenType::If)?.is_some() {
-                expr = ExprHighest::If(Parsable::parse(tokens)?);
+                expr = Expr::If(Parsable::parse(tokens)?);
             }
             else {
-                expr = ExprHighest::Block(Parsable::parse(tokens)?);
+                expr = Expr::Block(Parsable::parse(tokens)?);
             }
             else_ = Some((tok, Box::new(expr.into())));
         }
@@ -1185,13 +978,13 @@ impl<'a> Parsable<'a> for WhileExpr<'a> {
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         let while_ = tokens.expected()?;
 
-        let cond: Expr0<'a> = Expr0::parse(tokens)?;
-        let do_: Expr0<'a>;
-        if matches!(cond.as_expr_highest(), Some(ExprHighest::Parentised(..))) {
-            do_ = Expr0::parse(tokens)?;
+        let cond: Expr<'a> = Expr::parse(tokens)?;
+        let do_: Expr<'a>;
+        if matches!(cond, Expr::Parentised(..)) {
+            do_ = Expr::parse(tokens)?;
         }
         else {
-            do_ = ExprHighest::Block(BlockExpr::parse(tokens)?)
+            do_ = Expr::Block(BlockExpr::parse(tokens)?)
                 .into();
         }
 
@@ -1212,9 +1005,9 @@ mod tests {
     #[test]
     fn expr_simple() -> Result<(), Box<dyn Error>> {
         let mut tokens = TokenStream::new("5 + 5 / 5 + x * 5");
-        let expr = Expr0::parse(&mut tokens)?;
+        let expr = Expr::parse(&mut tokens)?;
 
-        assert_eq!(format!("{expr}"), "((5 + (5 / 5)) + (x * 5))");
+        assert_eq!(format!("{expr}"), "(5 + (5 / 5)) + (x * 5)");
 
         Ok(())
     }
@@ -1222,7 +1015,7 @@ mod tests {
     #[test]
     fn expr_if() -> Result<(), Box<dyn Error>> {
         let mut tokens = TokenStream::new("if x == 10 { 5+5; }");
-        let expr = Expr0::parse(&mut tokens)?;
+        let expr = Expr::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "if x == 10 {(5 + 5);}");
 
@@ -1232,7 +1025,7 @@ mod tests {
     #[test]
     fn expr_if_else() -> Result<(), Box<dyn Error>> {
         let mut tokens = TokenStream::new("if (a + 5) == 10 { 5+5 } else { 0 }");
-        let expr = Expr0::parse(&mut tokens)?;
+        let expr = Expr::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "if ((a + 5)) == 10 {(5 + 5)} else {0}");
 
@@ -1242,7 +1035,7 @@ mod tests {
     #[test]
     fn expr_if_else_if() -> Result<(), Box<dyn Error>> {
         let mut tokens = TokenStream::new("if (a + 5) == 10 { 5+5 } else if true { 1 } else { 0 }");
-        let expr = Expr0::parse(&mut tokens)?;
+        let expr = Expr::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "if ((a + 5)) == 10 {(5 + 5)} else if true {1} else {0}");
 
