@@ -423,6 +423,24 @@ pub mod ast {
         }
     }
 
+    #[derive(Debug)]
+    pub struct FunctionCallExpr<'a> {
+        pub expr: Box<Expr<'a>>,
+        pub paren_open: ParenOpenToken<'a>,
+        pub arguments: SeparatedList<'a,
+            ParenCloseToken<'a>, ComaToken<'a>, Expr<'a>
+        >,
+        pub paren_close: ParenCloseToken<'a>,
+    }
+
+    impl<'a> Display for FunctionCallExpr<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}{}{}{}",
+                self.expr, self.paren_open, self.arguments, self.paren_close
+            )
+        }
+    }
+
     /// An expression with intemediate precedance
     /// Has the BooleanOr binary operator
     #[derive(Debug, From)]
@@ -444,6 +462,8 @@ pub mod ast {
 
         Times(InfixOp<'a, Expr<'a>, StarToken<'a>, Expr<'a>>),
         Divide(InfixOp<'a, Expr<'a>, FSlashToken<'a>, Expr<'a>>),
+
+        FunctionCall(FunctionCallExpr<'a>),
 
         Parentised(ParentisedExpr<'a>),
         Block(BlockExpr<'a>),
@@ -475,6 +495,7 @@ pub mod ast {
                 Self::Minus(e) => write!(f, "({e})")?,
                 Self::Times(e) => write!(f, "({e})")?,
                 Self::Divide(e) => write!(f, "({e})")?,
+                Self::FunctionCall(e) => write!(f, "({e})")?,
             }
 
             Ok(())
@@ -940,7 +961,7 @@ impl<'a> Expr<'a> {
     fn expr_parse(
         tokens: &mut TokenStream<'a>, precedence: usize
     ) -> Result<Self, ParserError> {
-        if precedence >= 6 {
+        if precedence >= 7 {
             return Self::bottom_parse(tokens);
         }
 
@@ -949,7 +970,7 @@ impl<'a> Expr<'a> {
         use TokenType as TT;
 
         macro_rules! take_precedence {
-            ($($tt:path => $k:path [$p:expr]),*; _ => break,) => {
+            ($($tt:path => $k:path [$p:expr],)*) => {
                 match tokens.peek()?.map(|t| t.kind) {
                 $(Some($tt) if precedence == $p => {
                     left = $k(InfixOp {
@@ -957,10 +978,11 @@ impl<'a> Expr<'a> {
                         op: tokens.expected()?,
                         right: Box::new(Expr::expr_parse(tokens, precedence + 1)?),
                         p: PhantomData,
-                    })
+                    });
+                    continue;
                 },)*
 
-                _ => break,
+                _ => (),
                 }
             };
         }
@@ -968,6 +990,7 @@ impl<'a> Expr<'a> {
         loop {
             // If the next token is the specified token and the precedence
             // matches, continue the left-associated operation
+            // 'continue' the loop if a token is matched
             take_precedence!(
                 TT::Equal           => Self::Assignment   [0],
 
@@ -985,10 +1008,25 @@ impl<'a> Expr<'a> {
                 TT::Dash            => Self::Minus        [4],
 
                 TT::Star            => Self::Times        [5],
-                TT::FSlash          => Self::Divide       [5];
+                TT::FSlash          => Self::Divide       [5],
+            );
 
-                _ => break,
-            )
+            match tokens.peek()?.map(|t| t.kind) {
+                Some(TokenType::ParenOpen) if precedence == 6 => {
+                    left = Self::FunctionCall(FunctionCallExpr {
+                        expr: Box::new(left),
+                        paren_open: tokens.expected()?,
+                        arguments: Parsable::parse(tokens)?,
+                        paren_close: tokens.expected()?
+                    });
+                    continue;
+                }
+
+                _ => (),
+            }
+
+            // Only reachable if the peeked token does not match any
+            break;
         }
         return Ok(left);
     }
@@ -1023,6 +1061,23 @@ impl<'a> Parsable<'a> for ParentisedExpr<'a> {
             open: Parsable::parse(tokens)?,
             expr: Box::new(Parsable::parse(tokens)?),
             close: Parsable::parse(tokens)?,
+        })
+    }
+}
+
+impl<'a> Parsable<'a> for FunctionCallExpr<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            Expr
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        Ok(Self {
+            expr: Box::new(Parsable::parse(tokens)?),
+            paren_open: Parsable::parse(tokens)?,
+            arguments: Parsable::parse(tokens)?,
+            paren_close: Parsable::parse(tokens)?,
         })
     }
 }
@@ -1214,6 +1269,16 @@ mod tests {
         let expr = Expr::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "{(a = 10);(c = (true && false));(b = (a + c))}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn expr_function_call() -> Result<(), Box<dyn Error>> {
+        let mut tokens = TokenStream::new("(this_is_a_function + 5)(5, (10 + 10),)");
+        let expr = Expr::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "(((this_is_a_function + 5))(5,((10 + 10)),))");
 
         Ok(())
     }
