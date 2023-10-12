@@ -302,7 +302,7 @@ pub mod ast {
                 Self::Assignment(e) => write!(f, "({e})")?,
                 Self::BooleanOr(e) => write!(f, "({e})")?,
                 Self::BooleanAnd(e) => write!(f, "({e})")?,
-                Self::Equality(e) => write!(f, "{e}")?,
+                Self::Equality(e) => write!(f, "({e})")?,
                 Self::Plus(e) => write!(f, "({e})")?,
                 Self::Minus(e) => write!(f, "({e})")?,
                 Self::Times(e) => write!(f, "({e})")?,
@@ -1017,7 +1017,7 @@ mod tests {
         let mut tokens = TokenStream::new("if x == 10 { 5+5; }");
         let expr = Expr::parse(&mut tokens)?;
 
-        assert_eq!(format!("{expr}"), "if x == 10 {(5 + 5);}");
+        assert_eq!(format!("{expr}"), "if (x == 10) {(5 + 5);}");
 
         Ok(())
     }
@@ -1027,7 +1027,7 @@ mod tests {
         let mut tokens = TokenStream::new("if (a + 5) == 10 { 5+5 } else { 0 }");
         let expr = Expr::parse(&mut tokens)?;
 
-        assert_eq!(format!("{expr}"), "if ((a + 5)) == 10 {(5 + 5)} else {0}");
+        assert_eq!(format!("{expr}"), "if (((a + 5)) == 10) {(5 + 5)} else {0}");
 
         Ok(())
     }
@@ -1037,7 +1037,37 @@ mod tests {
         let mut tokens = TokenStream::new("if (a + 5) == 10 { 5+5 } else if true { 1 } else { 0 }");
         let expr = Expr::parse(&mut tokens)?;
 
-        assert_eq!(format!("{expr}"), "if ((a + 5)) == 10 {(5 + 5)} else if true {1} else {0}");
+        assert_eq!(format!("{expr}"), "if (((a + 5)) == 10) {(5 + 5)} else if true {1} else {0}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn expr_while() -> Result<(), Box<dyn Error>> {
+        let mut tokens = TokenStream::new("while true { test }");
+        let expr = Expr::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "while true {test}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn block() -> Result<(), Box<dyn Error>> {
+        let mut tokens = TokenStream::new("{ a = 10; c = true && false; b = a + c; }");
+        let expr = Expr::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "{(a = 10);(c = (true && false));(b = (a + c));}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn block2() -> Result<(), Box<dyn Error>> {
+        let mut tokens = TokenStream::new("{ a = 10; c = true && false; b = a + c }");
+        let expr = Expr::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "{(a = 10);(c = (true && false));(b = (a + c))}");
 
         Ok(())
     }
