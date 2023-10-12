@@ -529,7 +529,7 @@ mod tests {
     pub fn simple() {
         const SRC: &str = "machine -*+-\\ test-test
 # Bite
-data on state = 123456 + 031.4
+data on state = 123456 + 031.4 -> 5
         ";
 
         for (i, t) in Tokenizer::new(SRC).enumerate() {
@@ -623,6 +623,16 @@ data on state = 123456 + 031.4
             kind: TokenType::DecimalLiteral,
             content: "031.4".into(),
             pos: TokenPosition { row: 2, col: 25 },
+        })));
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+            kind: TokenType::ThinArrow,
+            content: "->".into(),
+            pos: TokenPosition { row: 2, col: 31 },
+        })));
+        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+            kind: TokenType::DecimalLiteral,
+            content: "5".into(),
+            pos: TokenPosition { row: 2, col: 34 },
         })));
     }
 }

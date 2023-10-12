@@ -27,12 +27,40 @@ pub mod ast {
         },
     }
 
+    impl<'a, End, T> Display for StmtContainer<'a, End, T>
+        where End: KnownToken<'a> + Display,
+              T: Display
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::UseSemi { semi, stmts } => {
+                    write!(f, "{semi}")?;
+                    for stmt in stmts.iter() {
+                        write!(f, " {stmt}")?;
+                    }
+                },
+                Self::UseBrackets { open, stmts, close } => {
+                    write!(f, "{open}")?;
+                    for stmt in stmts.iter() {
+                        write!(f, " {stmt}")?;
+                    }
+                    write!(f, " {close}")?;
+                },
+                Self::Never { .. } => unreachable!(),
+            }
+
+            Ok(())
+        }
+    }
+
     /// List of nodes separated by a token, usually a comma (ex. arguments)
+    /// with optional trailing separator
     #[derive(Debug)]
     pub struct SeparatedList<'a, End: KnownToken<'a>, Sep: KnownToken<'a>, T> {
         pub phantom: PhantomData<*const &'a End>,
 
         pub stmts: Box<[(T, Sep)]>,
+        /// Last statement is the only one with optional separator
         pub last: Option<(Box<T>, Option<Sep>)>,
     }
 
@@ -64,10 +92,30 @@ pub mod ast {
         pub stmts: StmtContainer<'a, MachineToken<'a>, MachineStmt<'a>>,
     }
 
+    impl<'a> Display for Machine<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{} ", self.machine_token)?;
+            write!(f, "{} ", self.id)?;
+            write!(f, "{}", self.stmts)?;
+
+            Ok(())
+        }
+    }
+
     /// Statements that go into a Machine
     #[derive(Debug, From)]
     pub enum MachineStmt<'a> {
         State(State<'a>),
+    }
+
+    impl<'a> Display for MachineStmt<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                MachineStmt::State(s) => write!(f, "{s}")?,
+            }
+
+            Ok(())
+        }
     }
 
     /// A State statement
@@ -79,6 +127,19 @@ pub mod ast {
         pub stmts: StmtContainer<'a, StateToken<'a>, StateStmt<'a>>,
     }
 
+    impl<'a> Display for State<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            if let Some(initial) = &self.initial_token {
+                write!(f, "{} ", initial)?;
+            }
+            write!(f, "{} ", self.state_token)?;
+            write!(f, "{} ", self.id)?;
+            write!(f, "{}", self.stmts)?;
+
+            Ok(())
+        }
+    }
+
     /// Statements that go into a State
     #[derive(Debug, From)]
     pub enum StateStmt<'a> {
@@ -86,6 +147,19 @@ pub mod ast {
         Dyn(Dyn<'a>),
         Data(Data<'a>),
         On(On<'a>),
+    }
+
+    impl<'a> Display for StateStmt<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Transition(e) => write!(f, "{e}")?,
+                Self::Dyn(e) => write!(f, "{e}")?,
+                Self::Data(e) => write!(f, "{e}")?,
+                Self::On(e) => write!(f, "{e}")?,
+            }
+
+            Ok(())
+        }
     }
 
     /// A state-transition statement
@@ -98,13 +172,41 @@ pub mod ast {
         pub semi: SemiColonToken<'a>,
     }
 
+    impl<'a> Display for StateTransition<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.equal)?;
+            write!(f, "{}", self.name_id)?;
+            write!(f, "{} ", self.caret_close)?;
+            write!(f, "{}", self.target_id)?;
+            write!(f, "{}", self.semi)?;
+
+            Ok(())
+        }
+    }
+
     /// A dynamic statement
     #[derive(Debug)]
     pub struct Dyn<'a> {
         pub src_expr: Expr<'a>,
         pub thin_arrow: ThinArrowToken<'a>,
         pub stmt: Expr<'a>,
+        /// Only optional if stmt is a block statement
         pub semi: Option<SemiColonToken<'a>>,
+    }
+
+    impl<'a> Display for Dyn<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{} {} {}",
+                self.src_expr,
+                self.thin_arrow,
+                self.stmt
+            )?;
+            if let Some(semi) = &self.semi {
+                write!(f, "{semi}")?;
+            }
+
+            Ok(())
+        }
     }
 
     /// A state-data statement
@@ -116,12 +218,38 @@ pub mod ast {
         pub curly_close: CurlyCloseToken<'a>,
     }
 
+    impl<'a> Display for Data<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{} {}{}{}",
+                self.data,
+                self.curly_open,
+                self.stmts,
+                self.curly_close
+            )?;
+
+            Ok(())
+        }
+    }
+
     /// Statements that go into a Data statement
     #[derive(Debug)]
     pub struct DataStmt<'a> {
         pub mutability: Option<MutToken<'a>>,
         pub id: IdenToken<'a>,
         pub ty: Type<'a>,
+    }
+
+    impl<'a> Display for DataStmt<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            if let Some(mut_) = &self.mutability {
+                write!(f, "{mut_} ")?;
+            }
+            write!(f, "{} {}",
+                self.id, self.ty
+            )?;
+
+            Ok(())
+        }
     }
 
     /// A 'on' statement
@@ -132,6 +260,18 @@ pub mod ast {
         pub paren_open: ParenOpenToken<'a>,
         pub params: SeparatedList<'a, ParenCloseToken<'a>, ComaToken<'a>, Parameter<'a>>,
         pub paren_close: ParenCloseToken<'a>,
+        pub body: BlockExpr<'a>,
+    }
+
+    impl<'a> Display for On<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{} {} {}{}{} {}",
+                self.on, self.id, self.paren_open, self.params,
+                self.paren_close, self.body
+            )?;
+
+            Ok(())
+        }
     }
 
     /// A parameter of a function / 'on' statement
@@ -141,10 +281,30 @@ pub mod ast {
         pub ty: Type<'a>,
     }
 
+    impl<'a> Display for Parameter<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{} {}",
+                self.id, self.ty
+            )?;
+
+            Ok(())
+        }
+    }
+
     /// A Type
     #[derive(Debug, From)]
     pub enum Type<'a> {
         Named(IdenToken<'a>),
+    }
+
+    impl<'a> Display for Type<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Type::Named(n) => write!(f, "{n}")?,
+            }
+
+            Ok(())
+        }
     }
 
     /// Operator in the infix form
@@ -655,7 +815,7 @@ impl<'a> Parsable<'a> for Dyn<'a> {
         let thin_arrow = tokens.expected::<ThinArrowToken>()?;
         let stmt = Expr::parse(tokens)?;
         let is_block = matches!(stmt, Expr::Block(..));
-        let semi = if is_block { None } else { Some(tokens.expected()?) };
+        let semi = if is_block { tokens.get_eq()? } else { Some(tokens.expected()?) };
 
         Ok(Self {
             src_expr,
@@ -722,6 +882,7 @@ impl<'a> Parsable<'a> for On<'a> {
         let paren_open = tokens.expected::<ParenOpenToken>()?;
         let params = SeparatedList::parse(tokens)?;
         let paren_close = tokens.expected::<ParenCloseToken>()?;
+        let body = BlockExpr::parse(tokens)?;
 
         Ok(Self {
             on,
@@ -729,6 +890,7 @@ impl<'a> Parsable<'a> for On<'a> {
             paren_open,
             params,
             paren_close,
+            body,
         })
     }
 }
@@ -857,7 +1019,14 @@ impl<'a> Expr<'a> {
 
 impl<'a> Parsable<'a> for Expr<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!()
+        expected!(
+            ParentisedExpr,
+            BlockExpr,
+            IdenToken,
+            IfExpr,
+            WhileExpr,
+            AnyLiteral
+        )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
@@ -1068,6 +1237,39 @@ mod tests {
         let expr = Expr::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "{(a = 10);(c = (true && false));(b = (a + c))}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn machine_curly_full() -> Result<(), Box<dyn Error>> {
+        let src = r#"
+        machine name {
+            initial state first {
+                data {
+                    name string,
+                    id u32,
+                    mut received i32
+                }
+
+                =increment> second;
+
+                reveived == 10 -> {};
+
+                on message(sender u32) {
+                    a = 10;
+                }
+            }
+
+            state second {
+                =decrement> first;
+            }
+        }
+        "#;
+        let mut tokens = TokenStream::new(src);
+        let expr = Machine::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "machine name { initial state first { data {name string,id u32,mut received i32} =increment> second; (reveived == 10) -> {}; on message (sender u32) {(a = 10);} } state second { =decrement> first; } }");
 
         Ok(())
     }
