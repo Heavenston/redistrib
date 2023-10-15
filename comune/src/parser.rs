@@ -84,32 +84,6 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
-    pub struct FunctionDeclaration<'a> {
-        pub fn_: FnToken<'a>,
-        pub id: IdenToken<'a>,
-        pub paren_open: ParenOpenToken<'a>,
-        pub params: SeparatedList<'a, ParenCloseToken<'a>, ComaToken<'a>, Parameter<'a>>,
-        pub paren_close: ParenCloseToken<'a>,
-        pub return_type: Option<Type<'a>>,
-        pub body: BlockExpr<'a>,
-    }
-
-    impl<'a> Display for FunctionDeclaration<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{} {}{}{}{}",
-                self.fn_, self.id,
-                self.paren_open, self.params, self.paren_close,
-            )?;
-            if let Some(ty) = &self.return_type {
-                write!(f, " {ty}")?;
-            }
-            write!(f, " {}", self.body)?;
-
-            Ok(())
-        }
-    }
-
     /// A Machine declaration
     /// Ex:
     /// ```comune
@@ -229,14 +203,12 @@ pub mod ast {
     #[derive(Debug, From)]
     pub enum Declaration<'a> {
         Machine(MachineDeclaration<'a>),
-        Function(FunctionDeclaration<'a>),
     }
     
     impl<'a> Display for Declaration<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Machine(m) => write!(f, "{m}")?,
-                Self::Function(m) => write!(f, "{m}")?,
             }
 
             Ok(())
@@ -795,37 +767,6 @@ impl<'a, End, Sep, T> Parsable<'a> for SeparatedList<'a, End, Sep, T>
     }
 }
 
-impl<'a> Parsable<'a> for FunctionDeclaration<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            FnToken
-        )
-    }
-
-    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let fn_ = Parsable::parse(tokens)?;
-        let id = Parsable::parse(tokens)?;
-        let paren_open = Parsable::parse(tokens)?;
-        let params = Parsable::parse(tokens)?;
-        let paren_close = Parsable::parse(tokens)?;
-
-        let return_type = if tokens.peek_eq(TokenType::CurlyOpen)?.is_some()
-        { None } else { Some(Type::parse(tokens)?) };
-        
-        let body = BlockExpr::parse(tokens)?;
-        
-        Ok(Self {
-            fn_,
-            id,
-            paren_open,
-            params,
-            paren_close,
-            return_type,
-            body,
-        })
-    }
-}
-
 impl<'a> Parsable<'a> for MachineDeclaration<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         [TokenType::Machine].into_iter()
@@ -933,15 +874,13 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
 impl<'a> Parsable<'a> for Declaration<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            MachineDeclaration,
-            FunctionDeclaration
+            MachineDeclaration
         )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         l_one!(tokens;
-            Self::Machine => MachineDeclaration,
-            Self::Function => FunctionDeclaration
+            Self::Machine => MachineDeclaration
         )
     }
 }
@@ -1450,35 +1389,6 @@ mod tests {
         let expr = MachineDeclaration::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "machine name { machine inner { } initial state first { machine even_more_inner { } data {} } }");
-
-        Ok(())
-    }
-
-    #[test]
-    fn function() -> Result<(), Box<dyn Error>> {
-        let src = r#"
-        fn my_fn(x u32) {
-        }
-        "#;
-        let mut tokens = TokenStream::new(src);
-        let expr = FunctionDeclaration::parse(&mut tokens)?;
-
-        assert_eq!(format!("{expr}"), "fn my_fn(x u32) {}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn function_with_return_type() -> Result<(), Box<dyn Error>> {
-        let src = r#"
-        fn my_fn(x u32) this_is_a_type {
-            other_call();
-        }
-        "#;
-        let mut tokens = TokenStream::new(src);
-        let expr = FunctionDeclaration::parse(&mut tokens)?;
-
-        assert_eq!(format!("{expr}"), "fn my_fn(x u32) this_is_a_type {(other_call());}");
 
         Ok(())
     }
