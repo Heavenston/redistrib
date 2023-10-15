@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Display, marker::ConstParamTy};
+use std::{borrow::Cow, fmt::{Display, Debug}, marker::ConstParamTy};
 
 #[derive(PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
@@ -33,11 +33,22 @@ pub trait KnownToken<'a>: Token<'a> {
     const KIND: TokenType;
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct GenericToken<'a> {
     pub kind: TokenType,
     pub content: Cow<'a, str>,
     pub pos: TokenPosition,
+}
+
+impl<'a> Debug for GenericToken<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Token({:?}, kind {:?}, line {}, col {})",
+            self.kind,
+            self.content.as_ref(),
+            self.pos.row,
+            self.pos.col
+        )
+    }
 }
 
 impl<'a> Token<'a> for GenericToken<'a> {
@@ -89,7 +100,7 @@ macro_rules! tokens {
         }
 
         $(
-        #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+        #[derive(Clone, Hash, PartialEq, Eq)]
         pub struct $tname<'a> {
             pub content: Cow<'a, str>,
             pub pos: TokenPosition,
@@ -98,6 +109,16 @@ macro_rules! tokens {
         impl<'a> Display for $tname<'a> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}", self.content)
+            }
+        }
+
+        impl<'a> Debug for $tname<'a> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "Token({:?}, line {}, col {})",
+                    self.content.as_ref(),
+                    self.pos.row,
+                    self.pos.col
+                )
             }
         }
 
