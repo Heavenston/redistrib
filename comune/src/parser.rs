@@ -755,7 +755,11 @@ impl<'a, End: KnownToken<'a>, T: Parsable<'a>> Parsable<'a> for StmtContainer<'a
     }
 }
 
-impl<'a, End: KnownToken<'a>, Sep: KnownToken<'a>, T: Parsable<'a>> Parsable<'a> for SeparatedList<'a, End, Sep, T> {
+impl<'a, End, Sep, T> Parsable<'a> for SeparatedList<'a, End, Sep, T>
+    where End: KnownToken<'a>,
+          Sep: KnownToken<'a>,
+          T:   Parsable<'a>
+{
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             End,
