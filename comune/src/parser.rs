@@ -84,6 +84,35 @@ pub mod ast {
         }
     }
 
+    #[derive(Debug)]
+    pub struct LetDeclaration<'a> {
+        pub let_: LetToken<'a>,
+        pub mut_: Option<MutToken<'a>>,
+        pub name: IdenToken<'a>,
+        pub params: Box<[IdenToken<'a>]>,
+        pub eq: EqualToken<'a>,
+        pub expr: Expr<'a>,
+        pub semi: SemiColonToken<'a>,
+    }
+
+    impl<'a> Display for LetDeclaration<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.let_)?;
+            if let Some(mut_) = &self.mut_ {
+                write!(f, " {}", mut_)?;
+            }
+            write!(f, " {}", self.name)?;
+            for params in self.params.iter() {
+                write!(f, " {}", params)?;
+            }
+            write!(f, " {}", self.eq)?;
+            write!(f, " {}", self.expr)?;
+            write!(f, "{}", self.semi)?;
+
+            Ok(())
+        }
+    }
+
     /// A Machine declaration
     /// Ex:
     /// ```comune
@@ -179,6 +208,10 @@ pub mod ast {
     }
 
     /// A state-transition statement
+    /// ex:
+    /// ```comune
+    /// =bail> error;
+    /// ```
     #[derive(Debug)]
     pub struct StateTransition<'a> {
         pub equal: EqualToken<'a>,
@@ -203,12 +236,14 @@ pub mod ast {
     #[derive(Debug, From)]
     pub enum Declaration<'a> {
         Machine(MachineDeclaration<'a>),
+        Let(LetDeclaration<'a>),
     }
     
     impl<'a> Display for Declaration<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Machine(m) => write!(f, "{m}")?,
+                Self::Let(m) => write!(f, "{m}")?,
             }
 
             Ok(())
@@ -364,7 +399,7 @@ pub mod ast {
 
     /// An expression surrounded by parenthesis
     #[derive(Debug)]
-    pub struct ParentisedExpr<'a>{
+    pub struct ParentisedExpr<'a> {
         pub open: ParenOpenToken<'a>,
         pub expr: Box<Expr<'a>>,
         pub close: ParenCloseToken<'a>,
@@ -378,18 +413,62 @@ pub mod ast {
         }
     }
 
+    #[derive(Debug)]
+    pub struct SemiedExpr<'a> {
+        pub expr: Box<Expr<'a>>,
+        pub semi: SemiColonToken<'a>,
+    }
+
+    impl<'a> Display for SemiedExpr<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}{}", self.expr, self.semi)?;
+
+            Ok(())
+        }
+    }
+
+    /// Statement that goes into a BlockExpr
+    #[derive(From, Debug)]
+    pub enum BlockStatement<'a> {
+        Decl(Declaration<'a>),
+        Expr(SemiedExpr<'a>),
+    }
+
+    impl<'a> Display for BlockStatement<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Decl(e) => write!(f, "{e}")?,
+                Self::Expr(e) => write!(f, "{e}")?,
+            }
+
+            Ok(())
+        }
+    }
+
     /// A list of expressions separated by semicolons and surrounded by 
     /// curly braces
     #[derive(Debug)]
     pub struct BlockExpr<'a> {
         pub open: CurlyOpenToken<'a>,
-        pub exprs: SeparatedList<'a, CurlyCloseToken<'a>, SemiColonToken<'a>, Expr<'a>>,
+
+        pub stmts: Box<[BlockStatement<'a>]>,
+        /// If there is an expression without semi colon at the end
+        /// it is placed here
+        pub last_expr: Option<Box<Expr<'a>>>,
+
         pub close: CurlyCloseToken<'a>,
     }
 
     impl<'a> Display for BlockExpr<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}{}{}", self.open, self.exprs, self.close)?;
+            write!(f, "{}", self.open)?;
+            for st in self.stmts.iter() {
+                write!(f, "{st}")?;
+            }
+            if let Some(last) = &self.last_expr {
+                write!(f, "{last}")?;
+            }
+            write!(f, "{}", self.close)?;
 
             Ok(())
         }
@@ -683,6 +762,12 @@ pub trait Parsable<'a>: Sized {
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError>;
 }
 
+pub fn parse<'a, T: Parsable<'a>>(
+    tokens: &mut TokenStream<'a>
+) -> Result<T, ParserError> {
+    T::parse(tokens)
+}
+
 impl<'a, T: KnownToken<'a>> Parsable<'a> for T {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         std::iter::once(T::KIND)
@@ -855,18 +940,43 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
-        let equal = tokens.expected::<EqualToken>()?;
-        let name_id = tokens.expected::<IdenToken>()?;
-        let caret_close = tokens.expected::<CaretCloseToken>()?;
-        let target_id = tokens.expected::<IdenToken>()?;
-        let semi = tokens.expected::<SemiColonToken>()?;
-
         Ok(StateTransition {
-            equal,
-            name_id,
-            caret_close,
-            target_id,
-            semi
+            equal: parse(tokens)?,
+            name_id: parse(tokens)?,
+            caret_close: parse(tokens)?,
+            target_id: parse(tokens)?,
+            semi: parse(tokens)?,
+        })
+    }
+}
+
+impl<'a> Parsable<'a> for LetDeclaration<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            LetToken
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        let let_ = parse(tokens)?;
+        let mut_ = tokens.get_eq()?;
+        let name = parse(tokens)?;
+        let mut params = Vec::new();
+        while tokens.peek_eq(TokenType::Equal)?.is_none() {
+            params.push(parse(tokens)?);
+        }
+        let eq = parse(tokens)?;
+        let expr = parse(tokens)?;
+        let semi = parse(tokens)?;
+
+        Ok(Self {
+            let_,
+            mut_,
+            name,
+            params: params.into_boxed_slice(),
+            eq,
+            expr,
+            semi,
         })
     }
 }
@@ -874,13 +984,15 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
 impl<'a> Parsable<'a> for Declaration<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            MachineDeclaration
+            MachineDeclaration,
+            LetDeclaration
         )
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         l_one!(tokens;
-            Self::Machine => MachineDeclaration
+            Self::Machine => MachineDeclaration,
+            Self::Let => LetDeclaration
         )
     }
 }
@@ -1069,7 +1181,7 @@ impl<'a> Expr<'a> {
                     left = Self::FunctionCall(FunctionCallExpr {
                         expr: Box::new(left),
                         paren_open: tokens.expected()?,
-                        arguments: Parsable::parse(tokens)?,
+                        arguments: parse(tokens)?,
                         paren_close: tokens.expected()?
                     });
                     continue;
@@ -1111,9 +1223,9 @@ impl<'a> Parsable<'a> for ParentisedExpr<'a> {
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         Ok(ParentisedExpr {
-            open: Parsable::parse(tokens)?,
-            expr: Box::new(Parsable::parse(tokens)?),
-            close: Parsable::parse(tokens)?,
+            open: parse(tokens)?,
+            expr: Box::new(parse(tokens)?),
+            close: parse(tokens)?,
         })
     }
 }
@@ -1127,10 +1239,10 @@ impl<'a> Parsable<'a> for FunctionCallExpr<'a> {
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         Ok(Self {
-            expr: Box::new(Parsable::parse(tokens)?),
-            paren_open: Parsable::parse(tokens)?,
-            arguments: Parsable::parse(tokens)?,
-            paren_close: Parsable::parse(tokens)?,
+            expr: Box::new(parse(tokens)?),
+            paren_open: parse(tokens)?,
+            arguments: parse(tokens)?,
+            paren_close: parse(tokens)?,
         })
     }
 }
@@ -1143,10 +1255,49 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
     }
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        let open = parse(tokens)?;
+
+        enum ExprOrDecl<'a> {
+            Expr(Expr<'a>),
+            Decl(Declaration<'a>),
+        }
+
+        let mut stmts = Vec::new();
+        let mut last_expr = None;
+
+        while tokens.peek_eq(TokenType::CurlyClose)?.is_none() {
+            let stmt = l_one!(tokens;
+                ExprOrDecl::Expr => Expr,
+                ExprOrDecl::Decl => Declaration
+            )?;
+
+            match stmt {
+                ExprOrDecl::Decl(d) => {
+                    stmts.push(BlockStatement::Decl(d));
+                },
+                ExprOrDecl::Expr(e)
+                    if tokens.peek_eq(TokenType::SemiColon)?.is_some() =>
+                {
+                    stmts.push(BlockStatement::Expr(SemiedExpr {
+                        expr: Box::new(e),
+                        semi: parse(tokens)?,
+                    }));
+                },
+                // Expr with no semi colon = end of block
+                ExprOrDecl::Expr(e) => {
+                    last_expr = Some(Box::new(e));
+                    break
+                }
+            }
+        }
+
+        let close = parse(tokens)?;
+
         Ok(BlockExpr {
-            open: Parsable::parse(tokens)?,
-            exprs: Parsable::parse(tokens)?,
-            close: Parsable::parse(tokens)?,
+            open,
+            stmts: stmts.into_boxed_slice(),
+            last_expr,
+            close,
         })
     }
 }
@@ -1174,8 +1325,8 @@ impl<'a> Parsable<'a> for Parameter<'a> {
 
     fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
         Ok(Self {
-            id: Parsable::parse(tokens)?,
-            ty: Parsable::parse(tokens)?,
+            id: parse(tokens)?,
+            ty: parse(tokens)?,
         })
     }
 }
@@ -1205,10 +1356,10 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
             let tok = tokens.expected::<ElseToken>()?;
             let expr;
             if tokens.peek_eq(TokenType::If)?.is_some() {
-                expr = Expr::If(Parsable::parse(tokens)?);
+                expr = Expr::If(parse(tokens)?);
             }
             else {
-                expr = Expr::Block(Parsable::parse(tokens)?);
+                expr = Expr::Block(parse(tokens)?);
             }
             else_ = Some((tok, Box::new(expr.into())));
         }
@@ -1389,6 +1540,49 @@ mod tests {
         let expr = MachineDeclaration::parse(&mut tokens)?;
 
         assert_eq!(format!("{expr}"), "machine name { machine inner { } initial state first { machine even_more_inner { } data {} } }");
+
+        Ok(())
+    }
+
+    #[test]
+    fn let_alone() -> Result<(), Box<dyn Error>> {
+        let src = r#"
+        let test = 5;
+        "#;
+        let mut tokens = TokenStream::new(src);
+        let expr = LetDeclaration::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "let test = 5;");
+
+        Ok(())
+    }
+
+    #[test]
+    fn let_alone_fn() -> Result<(), Box<dyn Error>> {
+        let src = r#"
+        let plus a b = a + b;
+        "#;
+        let mut tokens = TokenStream::new(src);
+        let expr = LetDeclaration::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "let plus a b = (a + b);");
+
+        Ok(())
+    }
+
+    #[test]
+    fn let_alone_fn_block() -> Result<(), Box<dyn Error>> {
+        let src = r#"
+        let plus a b = {
+            let c = a + b;
+
+            a * c
+        };
+        "#;
+        let mut tokens = TokenStream::new(src);
+        let expr = LetDeclaration::parse(&mut tokens)?;
+
+        assert_eq!(format!("{expr}"), "let plus a b = {let c = (a + b);(a * c)};");
 
         Ok(())
     }

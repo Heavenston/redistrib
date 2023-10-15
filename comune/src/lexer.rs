@@ -154,6 +154,7 @@ tokens!(
     Data(DataToken, "'data'"),
     On(OnToken, "'on'"),
     Mut(MutToken, "'mut'"),
+    Let(LetToken, "'let'"),
 
     Iden(IdenToken, "<identifier>"),
 
@@ -281,6 +282,7 @@ impl<'a> Tokenizer<'a> {
             "data" => Ok(TokenType::Data),
             "on" => Ok(TokenType::On),
             "mut" => Ok(TokenType::Mut),
+            "let" => Ok(TokenType::Let),
 
             "if" => Ok(TokenType::If),
             "else" => Ok(TokenType::Else),
