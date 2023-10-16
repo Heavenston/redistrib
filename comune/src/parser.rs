@@ -617,7 +617,6 @@ pub mod ast {
 use std::marker::PhantomData;
 
 use ast::*;
-
 use crate::lexer::*;
 
 macro_rules! expected {

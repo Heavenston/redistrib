@@ -6,5 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+arrayvec = "0.7.4"
 derive_more = "0.99.17"
+num_enum = "0.7.0"
 thiserror = "1.0.48"
+vecmap-rs = "0.1.12"
+wasmer = "4.2.2"
