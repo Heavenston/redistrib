@@ -363,7 +363,6 @@ impl ExprBuilder {
 #[derive(Default)]
 pub struct WasmModuleBuilder {
     sections: VecMap<SectionId, Vec<Vec<u8>>>,
-    data_count: u32,
 }
 
 impl WasmModuleBuilder {
@@ -371,9 +370,16 @@ impl WasmModuleBuilder {
         Self::default()
     }
 
-    pub fn section_mut(&mut self, id: SectionId) -> &mut Vec<Vec<u8>> {
+    fn section_mut(&mut self, id: SectionId) -> &mut Vec<Vec<u8>> {
         self.sections.entry(id)
             .or_insert(vec![])
+    }
+
+    /// Appends a segment into the given section and returns its idx
+    fn append_segment(&mut self, id: SectionId, data: Vec<u8>) -> u32 {
+        let ss = self.section_mut(id);
+        ss.push(data);
+        (ss.len() - 1).try_into().expect("So much !?")
     }
 
     pub fn set_mem0(&mut self, min: u32, max: Option<u32>) {
@@ -398,9 +404,6 @@ impl WasmModuleBuilder {
 
     /// Appends a passive data segment and return its Id
     pub fn add_data_passive(&mut self, bytes: &[u8]) -> u32 {
-        let id = self.data_count;
-        self.data_count += 1;
-
         let mut data = vec![];
 
         // Passive flag
@@ -412,16 +415,11 @@ impl WasmModuleBuilder {
         );
         data.extend_from_slice(bytes);
 
-        self.section_mut(SectionId::Data).push(data);
-
-        id
+        self.append_segment(SectionId::Data, data)
     }
 
     /// Appends an active data segment and return its Id
     pub fn add_data_active(&mut self, bytes: &[u8], offset: ExprBuilder) -> u32 {
-        let id = self.data_count;
-        self.data_count += 1;
-
         let mut data = vec![];
 
         // Passive flag
@@ -434,9 +432,48 @@ impl WasmModuleBuilder {
         );
         data.extend_from_slice(bytes);
 
-        self.section_mut(SectionId::Data).push(data);
+        self.append_segment(SectionId::Data, data)
+    }
 
-        id
+    /// Appends a global segment and return its idx
+    pub fn add_global(&mut self, ty: ValType, mut_: bool, expr: ExprBuilder) -> u32 {
+        let mut data = vec![];
+
+        data.push(ty.into());
+        data.push(if mut_ { 0x01 } else { 0x00 });
+        data.extend_from_slice(&expr.build());
+        data.push(OpCode::End.into());
+
+        self.append_segment(SectionId::Global, data)
+    }
+
+    fn add_export(&mut self, name: &str, kind: u8, idx: u32) -> u32 {
+        let mut data = vec![];
+
+        data.extend_from_slice(
+            &u32::try_from(name.len()).expect("So much name?!").to_leb128()
+        );
+        data.extend_from_slice(name.as_bytes());
+        data.push(kind);
+        data.extend_from_slice(&idx.to_leb128());
+
+        self.append_segment(SectionId::Export, data)
+    }
+
+    pub fn add_func_export(&mut self, name: &str, idx: u32) -> u32 {
+        self.add_export(name, 0x00, idx)
+    }
+
+    pub fn add_table_export(&mut self, name: &str, idx: u32) -> u32 {
+        self.add_export(name, 0x01, idx)
+    }
+
+    pub fn add_mem_export(&mut self, name: &str, idx: u32) -> u32 {
+        self.add_export(name, 0x02, idx)
+    }
+
+    pub fn add_global_export(&mut self, name: &str, idx: u32) -> u32 {
+        self.add_export(name, 0x03, idx)
     }
 
     pub fn build(mut self) -> Vec<u8> {
