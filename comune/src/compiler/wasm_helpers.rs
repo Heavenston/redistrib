@@ -362,7 +362,7 @@ impl ExprBuilder {
 
 #[derive(Default)]
 pub struct WasmModuleBuilder {
-    sections: VecMap<SectionId, Vec<u8>>,
+    sections: VecMap<SectionId, Vec<Vec<u8>>>,
     data_count: u32,
 }
 
@@ -371,21 +371,28 @@ impl WasmModuleBuilder {
         Self::default()
     }
 
-    pub fn section_mut(&mut self, id: SectionId) -> &mut Vec<u8> {
+    pub fn section_mut(&mut self, id: SectionId) -> &mut Vec<Vec<u8>> {
         self.sections.entry(id)
             .or_insert(vec![])
     }
 
-    pub fn add_mem(&mut self, min: u32, max: Option<u32>) {
+    pub fn set_mem0(&mut self, min: u32, max: Option<u32>) {
         let section = self.section_mut(SectionId::Memory);
+
+        section.clear();
+        section.push(vec![]);
+        let mut mem0 = &mut section[0];
+
+        // Number of memories, here hardcoded to one
+        // as no more memory is allowed
         if let Some(max) = max {
-            section.push(0x01);
-            section.extend_from_slice(min.to_leb128().as_slice());
-            section.extend_from_slice(max.to_leb128().as_slice());
+            mem0.push(0x01);
+            mem0.extend_from_slice(min.to_leb128().as_slice());
+            mem0.extend_from_slice(max.to_leb128().as_slice());
         }
         else {
-            section.push(0x00);
-            section.extend_from_slice(min.to_leb128().as_slice());
+            mem0.push(0x00);
+            mem0.extend_from_slice(min.to_leb128().as_slice());
         }
     }
 
@@ -394,16 +401,18 @@ impl WasmModuleBuilder {
         let id = self.data_count;
         self.data_count += 1;
 
-        let section = self.section_mut(SectionId::Data);
+        let mut data = vec![];
 
         // Passive flag
-        section.push(0x01);
-        section.extend_from_slice(
+        data.push(0x01);
+        data.extend_from_slice(
             u32::try_from(
                 bytes.len()
             ).expect("So much data ?!").to_leb128().as_slice()
         );
-        section.extend_from_slice(bytes);
+        data.extend_from_slice(bytes);
+
+        self.section_mut(SectionId::Data).push(data);
 
         id
     }
@@ -413,17 +422,19 @@ impl WasmModuleBuilder {
         let id = self.data_count;
         self.data_count += 1;
 
-        let section = self.section_mut(SectionId::Data);
+        let mut data = vec![];
 
         // Passive flag
-        section.push(0x00);
-        section.extend_from_slice(&offset.build());
-        section.extend_from_slice(
+        data.push(0x00);
+        data.extend_from_slice(&offset.build());
+        data.extend_from_slice(
             u32::try_from(
                 bytes.len()
             ).expect("So much data ?!").to_leb128().as_slice()
         );
-        section.extend_from_slice(bytes);
+        data.extend_from_slice(bytes);
+
+        self.section_mut(SectionId::Data).push(data);
 
         id
     }
@@ -451,15 +462,17 @@ impl WasmModuleBuilder {
             // Version 1
             0x01, 0x00, 0x00, 0x00, 
         ];
-        for (mut data, id) in section_order.into_iter()
-            .filter_map(|id| self.sections.remove(&id).zip(Some(id)))
+        for (data, id) in section_order.into_iter()
+            .filter_map(|id| self.sections.get(&id).zip(Some(id)))
         {
             result.push(id.into());
             result.extend_from_slice(
                 u32::try_from(data.len()).expect("So much data?!")
                     .to_leb128().as_slice()
             );
-            result.append(&mut data);
+            for d in data {
+                result.extend_from_slice(d);
+            }
         }
         result
     }
