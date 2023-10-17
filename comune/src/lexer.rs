@@ -90,10 +90,9 @@ macro_rules! tokens {
 
         impl Display for TokenType {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                use TokenType as T;
                 match self {
                     $(
-                    T::$name => write!(f, $print),
+                    Self::$name => write!(f, $print),
                     )*
                 }
             }
@@ -169,6 +168,8 @@ macro_rules! tokens {
 }
 
 tokens!(
+    EOF(EOFToken, "<eof>"),
+
     Machine(MachineToken, "'machine'"),
     Initial(InitialToken, "'initial'"),
     State(StateToken, "'state'"),
@@ -340,7 +341,7 @@ impl<'a> Tokenizer<'a> {
         assert_eq!(self.take_char(), Some('"'));
 
         loop {
-            // Some branches need the char to not be taken
+            // Peek because some branches need the char to not be taken
             match self.peek_char() {
                 None => {
                     self.take_char();
@@ -428,17 +429,13 @@ impl<'a> Tokenizer<'a> {
             }),
         }
     }
-}
 
-impl<'a> Iterator for Tokenizer<'a> {
-    type Item = Result<GenericToken<'a>, LexerError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while self.peek_char()?.is_whitespace() {
+    pub fn get(&mut self) -> Result<GenericToken<'a>, LexerError> {
+        while self.peek_char().is_some_and(|c| c.is_whitespace()) {
             self.take_char();
         }
 
-        let ch = self.peek_char()?;
+        let ch = self.peek_char();
 
         let start_chs = self.chs;
         let start_str = self.source;
@@ -446,25 +443,59 @@ impl<'a> Iterator for Tokenizer<'a> {
         let col = self.col;
 
         let kind = match ch {
-            '#' => Ok(self.read_comment()),
-            '"' => self.read_string(),
-            _ if ID_CHARS_START.contains(ch) => self.read_id(),
-            _ if ch.is_digit(10) => self.read_decimal(),
-            _ => self.read_special(),
+            None => Ok(TokenType::EOF),
+            Some('#') => Ok(self.read_comment()),
+            Some('"') => self.read_string(),
+            Some(c) if ID_CHARS_START.contains(c) => self.read_id(),
+            Some(c) if c.is_digit(10) => self.read_decimal(),
+            Some(_) => self.read_special(),
         };
         let kind = match kind {
             Ok(o) => o,
-            Err(e) => return Some(Err(e)),
+            Err(e) => return Err(e),
         };
 
         let len = self.chs - start_chs;
         let content = Cow::from(&start_str[0..len]);
 
-        Some(Ok(GenericToken {
+        Ok(GenericToken {
             kind,
             content,
             pos: TokenPosition { row, col }
-        }))
+        })
+    }
+}
+
+impl<'a> IntoIterator for Tokenizer<'a> {
+    type Item = Result<GenericToken<'a>, LexerError>;
+    type IntoIter = TokenizerIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        TokenizerIterator {
+            izer: self,
+            ended: false,
+        }
+    }
+}
+
+pub struct TokenizerIterator<'a> {
+    izer: Tokenizer<'a>,
+    ended: bool,
+}
+
+impl<'a> Iterator for TokenizerIterator<'a> {
+    type Item = Result<GenericToken<'a>, LexerError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.izer.get() {
+            Ok(t) if t.kind == TokenType::EOF => {
+                if self.ended
+                { return None; }
+                self.ended = true;
+                Some(Ok(t))
+            },
+            e => Some(e)
+        }
     }
 }
 
@@ -481,25 +512,32 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    fn ignored_next(&mut self) -> Result<Option<GenericToken<'a>>, LexerError> {
+    fn ignored_next(&mut self) -> Result<GenericToken<'a>, LexerError> {
         loop {
-            match self.tokenizer.next() {
-                Some(Ok(t)) if t.kind == TokenType::LineComment => (),
-                Some(Ok(t)) if t.kind == TokenType::BlockComment => (),
-                n => break n.transpose(),
+            match self.tokenizer.get() {
+                Ok(t) if t.kind == TokenType::LineComment => (),
+                Ok(t) if t.kind == TokenType::BlockComment => (),
+                n => break n,
             }
         }
     }
 
-    pub fn get(&mut self) -> Result<Option<GenericToken<'a>>, LexerError> {
-        self.next().transpose()
+    pub fn get(&mut self) -> Result<GenericToken<'a>, LexerError> {
+        if self.peeked.len() > 0 {
+            Ok(self.peeked.remove(0))
+        }
+        else {
+            self.ignored_next()
+        }
     }
 
-    pub fn get_if<F>(&mut self, f: F) -> Result<Option<GenericToken<'a>>, LexerError>
+    pub fn get_if<F>(
+        &mut self, f: F
+    ) -> Result<Option<GenericToken<'a>>, LexerError>
         where F: FnOnce(&GenericToken<'a>) -> bool
     {
-        if self.peek()?.is_some_and(f) {
-            return Ok(self.get()?);
+        if f(self.peek()?) {
+            return Ok(Some(self.get()?));
         }
         Ok(None)
     }
@@ -513,40 +551,59 @@ impl<'a> TokenStream<'a> {
         )
     }
 
-    pub fn peek_n(&mut self, n: usize) -> Result<Option<&GenericToken<'a>>, LexerError> {
+    pub fn peek_n(&mut self, n: usize) -> Result<&GenericToken<'a>, LexerError> {
         while self.peeked.len() <= n {
-            let t = match self.ignored_next() {
-                Ok(Some(t)) => t,
-                Ok(None) => return Ok(None),
-                Err(e) => return Err(e),
-            };
-            self.peeked.push(t);
+            let n = self.ignored_next()?;
+            self.peeked.push(n);
         }
 
-        Ok(Some(&self.peeked[n]))
+        Ok(&self.peeked[n])
     }
 
-    pub fn peek(&mut self) -> Result<Option<&GenericToken<'a>>, LexerError> {
+    pub fn peek(&mut self) -> Result<&GenericToken<'a>, LexerError> {
         self.peek_n(0)
     }
 
-    pub fn peek_eq(&mut self, ty: TokenType) -> Result<Option<&GenericToken<'a>>, LexerError> {
-        match self.peek_n(0)? {
-            Some(s) if s.kind == ty => Ok(Some(s)),
-            _ => Ok(None),
+    pub fn peek_eq(
+        &mut self, ty: TokenType
+    ) -> Result<Option<&GenericToken<'a>>, LexerError> {
+        let k = self.peek_n(0)?;
+        if k.kind == ty {
+            return Ok(Some(k));
+        }
+        Ok(None)
+    }
+}
+
+impl<'a> IntoIterator for TokenStream<'a> {
+    type Item = Result<GenericToken<'a>, LexerError>;
+    type IntoIter = TokenIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        TokenIterator {
+            stream: self,
+            ended: false,
         }
     }
 }
 
-impl<'a> Iterator for TokenStream<'a> {
+pub struct TokenIterator<'a> {
+    stream: TokenStream<'a>,
+    ended: bool,
+}
+
+impl<'a> Iterator for TokenIterator<'a> {
     type Item = Result<GenericToken<'a>, LexerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.peeked.len() > 0 {
-            Some(Ok(self.peeked.remove(0)))
-        }
-        else {
-            self.ignored_next().transpose()
+        match self.stream.get() {
+            Ok(t) if t.kind == TokenType::EOF => {
+                if self.ended
+                { return None; }
+                self.ended = true;
+                Some(Ok(t))
+            },
+            e => Some(e)
         }
     }
 }
@@ -562,107 +619,107 @@ mod tests {
 data on state = 123456 + 031.4 -> 5
         ";
 
-        for (i, t) in Tokenizer::new(SRC).enumerate() {
+        for (i, t) in Tokenizer::new(SRC).into_iter().enumerate() {
             println!("{i:02} : {t:?}");
         }
 
         let mut tokens = Tokenizer::new(SRC);
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Machine,
             content: "machine".into(),
             pos: TokenPosition { row: 0, col: 0 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Dash,
             content: "-".into(),
             pos: TokenPosition { row: 0, col: 8 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Star,
             content: "*".into(),
             pos: TokenPosition { row: 0, col: 9 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Plus,
             content: "+".into(),
             pos: TokenPosition { row: 0, col: 10 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Dash,
             content: "-".into(),
             pos: TokenPosition { row: 0, col: 11 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::BSlash,
             content: "\\".into(),
             pos: TokenPosition { row: 0, col: 12 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Iden,
             content: "test".into(),
             pos: TokenPosition { row: 0, col: 14 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Dash,
             content: "-".into(),
             pos: TokenPosition { row: 0, col: 18 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Iden,
             content: "test".into(),
             pos: TokenPosition { row: 0, col: 19 },
-        })));
+        }));
 
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::LineComment,
             content: "# Bite".into(),
             pos: TokenPosition { row: 1, col: 0 },
-        })));
+        }));
 
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Data,
             content: "data".into(),
             pos: TokenPosition { row: 2, col: 0 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::On,
             content: "on".into(),
             pos: TokenPosition { row: 2, col: 5 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::State,
             content: "state".into(),
             pos: TokenPosition { row: 2, col: 8 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Equal,
             content: "=".into(),
             pos: TokenPosition { row: 2, col: 14 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::DecimalLiteral,
             content: "123456".into(),
             pos: TokenPosition { row: 2, col: 16 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Plus,
             content: "+".into(),
             pos: TokenPosition { row: 2, col: 23 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::DecimalLiteral,
             content: "031.4".into(),
             pos: TokenPosition { row: 2, col: 25 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::ThinArrow,
             content: "->".into(),
             pos: TokenPosition { row: 2, col: 31 },
-        })));
-        assert_eq!(tokens.next(), Some(Ok(GenericToken {
+        }));
+        assert_eq!(tokens.get(), Ok(GenericToken {
             kind: TokenType::DecimalLiteral,
             content: "5".into(),
             pos: TokenPosition { row: 2, col: 34 },
-        })));
+        }));
     }
 }

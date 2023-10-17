@@ -612,6 +612,11 @@ pub mod ast {
             Ok(())
         }
     }
+
+    #[derive(Debug)]
+    pub struct File<'a> {
+        pub declarations: Box<Declaration<'a>>,
+    }
 }
 
 use std::marker::PhantomData;
@@ -629,6 +634,9 @@ macro_rules! expected {
 /// Peeks the next token and continue parsing on the first parsable that expects
 /// it as its first token
 macro_rules! l_one {
+    (use None) => {
+        $x::parse($tokens)
+    };
     (use $tokens:ident, $x:ident) => {
         $x::parse($tokens)
     };
@@ -697,20 +705,14 @@ impl<'a> Util<'a> for TokenStream<'a> {
         &mut self,
         tys: impl Iterator<Item = TokenType> + Clone
     ) -> Result<GenericToken<'a>, ParserError> {
-        let p = self.peek()?
-            .and_then(|tok| 
-                tys.clone().any(|ty| ty == tok.kind)
-                .then_some(tok)
-            )
-            .and(Some(()))
-            .and_then(|()| self.get().transpose()).transpose()?;
-        match p {
-            Some(p) => Ok(p),
-            None => Err(ParserError::UnexpetedToken {
-                read: self.peek()?.map(GenericToken::to_static),
-                expected: tys.collect::<Vec<_>>().into_boxed_slice()
-            })
+        let tok = self.peek()?;
+        if tys.clone().any(|ty| ty == tok.kind) {
+            return Ok(self.get()?);
         }
+        Err(ParserError::UnexpetedToken {
+            read: tok.to_static(),
+            expected: tys.collect::<Vec<_>>().into_boxed_slice()
+        })
     }
 
     fn peek_expected(
@@ -722,21 +724,14 @@ impl<'a> Util<'a> for TokenStream<'a> {
         &mut self,
         tys: impl Iterator<Item = TokenType> + Clone
     ) -> Result<&GenericToken<'a>, ParserError> {
-        match self.peek()? {
-            Some(p) if tys.clone().any(|ty| ty == p.kind) => Ok(p),
-            Some(p) => {
-                Err(ParserError::UnexpetedToken {
-                    read: Some(p.to_static()),
-                    expected: tys.collect::<Vec<_>>().into_boxed_slice()
-                })
-            }
-            None => {
-                Err(ParserError::UnexpetedToken {
-                    read: None,
-                    expected: tys.collect::<Vec<_>>().into_boxed_slice()
-                })
-            }
+        let p = self.peek()?;
+        if tys.clone().any(|ty| ty == p.kind) {
+            return Ok(p);
         }
+        Err(ParserError::UnexpetedToken {
+            read: p.to_static(),
+            expected: tys.collect::<Vec<_>>().into_boxed_slice()
+        })
     }
 }
 
@@ -744,7 +739,7 @@ impl<'a> Util<'a> for TokenStream<'a> {
 pub enum ParserError {
     #[error("Unexpected token, received {read:?} expected {expected:?}")]
     UnexpetedToken {
-        read: Option<GenericToken<'static>>,
+        read: GenericToken<'static>,
         expected: Box<[TokenType]>,
     },
     #[error(transparent)]
@@ -789,14 +784,14 @@ impl<'a, End: KnownToken<'a>, T: Parsable<'a>> Parsable<'a> for StmtContainer<'a
         let mut stmts = vec![];
         match_token!(tokens;
             t @ SemiColonToken => {
-                while tokens.peek()?.is_some_and(|t| t.kind != End::KIND) {
+                while tokens.peek()?.kind != End::KIND {
                     stmts.push(T::parse(tokens)?);
                 }
 
                 Ok(Self::UseSemi { semi: t, stmts: stmts.into_boxed_slice() })
             }
             t @ CurlyOpenToken => {
-                while tokens.peek()?.is_some_and(|t| t.kind != TokenType::CurlyClose) {
+                while tokens.peek()?.kind != TokenType::CurlyClose {
                     stmts.push(T::parse(tokens)?);
                 }
                 let close = tokens.expected::<CurlyCloseToken>()?;
@@ -1135,8 +1130,8 @@ impl<'a> Expr<'a> {
 
         macro_rules! take_precedence {
             ($($tt:path => $k:path [$p:expr],)*) => {
-                match tokens.peek()?.map(|t| t.kind) {
-                $(Some($tt) if precedence == $p => {
+                match tokens.peek()?.kind {
+                $($tt if precedence == $p => {
                     left = $k(InfixOp {
                         left: Box::new(left),
                         op: tokens.expected()?,
@@ -1175,8 +1170,8 @@ impl<'a> Expr<'a> {
                 TT::FSlash          => Self::Divide       [5],
             );
 
-            match tokens.peek()?.map(|t| t.kind) {
-                Some(TokenType::ParenOpen) if precedence == 6 => {
+            match tokens.peek()?.kind {
+                TokenType::ParenOpen if precedence == 6 => {
                     left = Self::FunctionCall(FunctionCallExpr {
                         expr: Box::new(left),
                         paren_open: tokens.expected()?,
