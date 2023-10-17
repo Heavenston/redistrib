@@ -288,13 +288,14 @@ macro_rules! leb128 {
 
             let mut buf = ArrayVec::new();
             // Add the bytes from least to most significants
-            while v > 0 {
+            while v > 0 || buf.len() == 0 {
                 // First 7 bits with msb set to 1
                 buf.push((v & 0x7F) as u8 | 0x80);
                 v >>= 7;
             }
 
             // Unset the first bit of the last byte
+            assert!(buf.len() > 0);
             let len = buf.len() - 1;
             buf[len] &= 0x7F;
 
@@ -348,22 +349,48 @@ impl ExprBuilder {
         Self::default()
     }
 
-    pub fn push_instr(&mut self, instr: OpCode) {
-        self.data.push(instr.into())
+    pub fn push_instr(&mut self, instr: OpCode) -> &mut Self {
+        self.data.push(instr.into());
+        self
     }
 
-    pub fn push_blocktype(&mut self, bt: BlockType) {
-        self.data.extend_from_slice(&bt.to_bytes())
+    pub fn push_blocktype(&mut self, bt: BlockType) -> &mut Self {
+        self.data.extend_from_slice(&bt.to_bytes());
+        self
     }
 
-    pub fn push_byte(&mut self, val: u8) {
-        self.data.push(val)
+    pub fn push_byte(&mut self, val: u8) -> &mut Self {
+        self.data.push(val);
+        self
     }
 
-    pub fn push_num<T: LEB128>(&mut self, val: T)
+    pub fn push_num<T: LEB128>(&mut self, val: T) -> &mut Self
         where [u8; T::RESULT_SIZE]: AsRef<[u8]>
     {
-        self.data.extend_from_slice(&val.to_leb128())
+        self.data.extend_from_slice(&val.to_leb128());
+        self
+    }
+
+    pub fn with_instr(mut self, instr: OpCode) -> Self {
+        self.push_instr(instr);
+        self
+    }
+
+    pub fn with_blocktype(mut self, bt: BlockType) -> Self {
+        self.push_blocktype(bt);
+        self
+    }
+
+    pub fn with_byte(mut self, val: u8) -> Self {
+        self.push_byte(val);
+        self
+    }
+
+    pub fn with_num<T: LEB128>(mut self, val: T) -> Self
+        where [u8; T::RESULT_SIZE]: AsRef<[u8]>
+    {
+        self.push_num(val);
+        self
     }
 
     pub fn build(self) -> Vec<u8> {
@@ -488,16 +515,16 @@ impl WasmModuleBuilder {
     }
 
     /// Appends a type segment and returns its index
-    pub fn add_type(&mut self, params: Vec<ValType>, results: Vec<ValType>) -> u32 {
+    pub fn add_type(&mut self, params: &[ValType], results: &[ValType]) -> u32 {
         let mut data = vec![];
 
         data.push(0x60);
         data.extend_from_slice(params.len().ass_to_leb128::<5>().as_slice());
-        for s in params {
+        for &s in params {
             data.push(s.into());
         }
         data.extend_from_slice(results.len().ass_to_leb128::<5>().as_slice());
-        for s in results {
+        for &s in results {
             data.push(s.into());
         }
 
@@ -506,6 +533,31 @@ impl WasmModuleBuilder {
 
     pub fn add_function(&mut self, type_idx: u32) -> u32 {
         self.append_segment(SectionId::Function, type_idx.to_leb128().to_vec())
+    }
+
+    pub fn add_code(
+        &mut self,
+        locals: &[(u32, ValType)], expr: ExprBuilder
+    ) -> u32 {
+        let mut data = vec![];
+
+        let mut func = vec![];
+        func.extend_from_slice(
+            locals.len().ass_to_leb128::<5>().as_slice()
+        );
+        for (id, ty) in locals {
+            func.extend_from_slice(id.to_leb128().as_slice());
+            func.push((*ty).into());
+        }
+        func.extend_from_slice(&expr.build());
+        func.push(OpCode::End.into());
+
+        data.extend_from_slice(
+            func.len().ass_to_leb128::<5>().as_slice()
+        );
+        data.append(&mut func);
+
+        self.append_segment(SectionId::Code, data)
     }
 
     pub fn build(mut self) -> Vec<u8> {
@@ -559,23 +611,53 @@ impl WasmModuleBuilder {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     use std::io::Write;
+    use std::error::Error;
 
-//     #[test]
-//     fn test1() {
-//         let mut b = WasmModuleBuilder::new();
+    #[test]
+    fn test_exported_functions() -> Result<(), Box<dyn Error>> {
+        let mut b = WasmModuleBuilder::new();
 
-//         let mut v = ExprBuilder::new();
-//         v.push_instr(OpCode::I32Const);
-//         v.push_num(35u32);
+        b.add_global(ValType::I32, true, ExprBuilder::new()
+            .with_instr(OpCode::I32Const)
+            .with_num(35u32)
+        );
 
-//         b.add_global(ValType::I32, true, v);
-//         let bts = b.build();
-//         let mut file = std::fs::File::create("out.wasm").unwrap();
-//         file.write_all(&bts).unwrap();
-//     }
-// }
+        let fty = b.add_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+        let add_idx = b.add_function(fty);
+        b.add_code(&[], ExprBuilder::new()
+            .with_instr(OpCode::LocalGet).with_num(0u32)
+            .with_instr(OpCode::LocalGet).with_num(1u32)
+            .with_instr(OpCode::I32Add)
+        );
+        b.add_func_export("add", add_idx);
+
+        let fty = b.add_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+        let complex_idx = b.add_function(fty);
+        b.add_code(&[], ExprBuilder::new()
+            .with_instr(OpCode::LocalGet).with_num(0u32)
+            .with_instr(OpCode::LocalGet).with_num(1u32)
+            .with_instr(OpCode::Call).with_num(add_idx)
+            .with_instr(OpCode::LocalGet).with_num(0u32)
+            .with_instr(OpCode::I32Mul)
+        );
+        b.add_func_export("complex", complex_idx);
+
+        let mut store = wasmer::Store::default();
+        let module = wasmer::Module::new(&store, b.build())?;
+
+        let imports = wasmer::Imports::new();
+        let instance = wasmer::Instance::new(&mut store, &module, &imports)?;
+
+        let add = instance.exports.get_typed_function::<(i32, i32), i32>(&store, "add")?;
+        assert_eq!(add.call(&mut store, 5, 5)?, 10);
+
+        let complex = instance.exports.get_typed_function::<(i32, i32), i32>(&store, "complex")?;
+        assert_eq!(complex.call(&mut store, 10, 5)?, 150);
+
+        Ok(())
+    }
+}
