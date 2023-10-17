@@ -398,6 +398,21 @@ impl ExprBuilder {
     }
 }
 
+#[derive(Clone, Copy, Hash)]
+pub enum ImportDescriptor {
+    Func {
+        idx: u32,
+    },
+    Mem {
+        min: u32,
+        max: Option<u32>,
+    },
+    Global {
+        valtype: ValType,
+        mut_: bool,
+    },
+}
+
 #[derive(Default)]
 pub struct WasmModuleBuilder {
     sections: VecMap<SectionId, Vec<Vec<u8>>>,
@@ -560,6 +575,44 @@ impl WasmModuleBuilder {
         self.append_segment(SectionId::Code, data)
     }
 
+    /// Appends an import segment and returns its id
+    pub fn add_import(
+        &mut self, module: &str, name: &str,
+        desc: ImportDescriptor,
+    ) -> u32 {
+        let mut data = vec![];
+
+        data.extend_from_slice(&module.len().ass_to_leb128::<5>());
+        data.extend_from_slice(module.as_bytes());
+        data.extend_from_slice(&name.len().ass_to_leb128::<5>());
+        data.extend_from_slice(name.as_bytes());
+
+        match desc {
+            ImportDescriptor::Func { idx } => {
+                data.push(0x00);
+                data.extend_from_slice(&idx.to_leb128());
+            },
+            ImportDescriptor::Mem { min, max: None } => {
+                data.push(0x02);
+                data.push(0x00);
+                data.extend_from_slice(&min.to_leb128());
+            },
+            ImportDescriptor::Mem { min, max: Some(max) } => {
+                data.push(0x02);
+                data.push(0x01);
+                data.extend_from_slice(&min.to_leb128());
+                data.extend_from_slice(&max.to_leb128());
+            },
+            ImportDescriptor::Global { valtype, mut_ } => {
+                data.push(0x03);
+                data.push(valtype.into());
+                data.push(if mut_ { 0x00 } else { 0x01 });
+            },
+        }
+
+        self.append_segment(SectionId::Import, data)
+    }
+
     pub fn build(mut self) -> Vec<u8> {
         let section_order = [
             SectionId::Custom,
@@ -642,7 +695,6 @@ mod tests {
         );
         b.add_func_export("add", add_idx);
 
-        let fty = b.add_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
         let complex_idx = b.add_function(fty);
         b.add_code(&[], ExprBuilder::new()
             .with_instr(OpCode::LocalGet).with_num(0u32)
@@ -664,8 +716,47 @@ mod tests {
         assert_eq!(add.call(&mut store, 5, 5)?, 11);
         assert_eq!(add.call(&mut store, 5, 5)?, 12);
 
-        let complex = instance.exports.get_typed_function::<(i32, i32), i32>(&store, "complex")?;
+        let complex = instance.exports.get_typed_function::<(i32, i32), i32>(
+            &store, "complex"
+        )?;
         assert_eq!(complex.call(&mut store, 10, 5)?, 180);
+
+        Ok(())
+    }
+    
+    #[test]
+    fn test_imported_functions() -> Result<(), Box<dyn Error>> {
+        let mut b = WasmModuleBuilder::new();
+
+        let fty = b.add_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+        let add_idx = b.add_import(
+            "sys", "add", ImportDescriptor::Func { idx: fty }
+        );
+
+        let complex_idx = b.add_function(fty);
+        b.add_code(&[], ExprBuilder::new()
+            .with_instr(OpCode::LocalGet).with_num(0u32)
+            .with_instr(OpCode::LocalGet).with_num(1u32)
+            .with_instr(OpCode::Call).with_num(add_idx)
+            .with_instr(OpCode::LocalGet).with_num(0u32)
+            .with_instr(OpCode::I32Mul)
+        );
+        b.add_func_export("complex", complex_idx + 1);
+
+        let mut store = wasmer::Store::default();
+        let module = wasmer::Module::new(&store, b.build())?;
+
+        let mut imports = wasmer::Imports::new();
+        imports.define(
+            "sys", "add",
+            wasmer::Function::new_typed(&mut store, |a: i32, b: i32| a + b)
+        );
+        let instance = wasmer::Instance::new(&mut store, &module, &imports)?;
+
+        let complex = instance.exports.get_typed_function::<(i32, i32), i32>(
+            &store, "complex"
+        )?;
+        assert_eq!(complex.call(&mut store, 10, 5)?, 150);
 
         Ok(())
     }
