@@ -615,7 +615,19 @@ pub mod ast {
 
     #[derive(Debug)]
     pub struct File<'a> {
-        pub declarations: Box<Declaration<'a>>,
+        pub declarations: Box<[Declaration<'a>]>,
+        pub eof: EOFToken<'a>,
+    }
+
+    impl<'a> Display for File<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for decl in self.declarations.iter() {
+                write!(f, "{decl}\n")?;
+            }
+            write!(f, "{}", self.eof)?;
+
+            Ok(())
+        }
     }
 }
 
@@ -1391,6 +1403,29 @@ impl<'a> Parsable<'a> for WhileExpr<'a> {
             while_,
             cond: Box::new(cond),
             do_: Box::new(do_),
+        })
+    }
+}
+
+impl<'a> Parsable<'a> for File<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            EOFToken,
+            Declaration
+        )
+    }
+
+    fn parse(tokens: &mut TokenStream<'a>) -> Result<Self, ParserError> {
+        let mut decls = vec![];
+
+        while tokens.peek_eq(TokenType::EOF)?.is_none() {
+            decls.push(parse(tokens)?);
+        }
+        let eof = tokens.expected::<EOFToken>()?;
+
+        Ok(Self {
+            declarations: decls.into_boxed_slice(),
+            eof,
         })
     }
 }
