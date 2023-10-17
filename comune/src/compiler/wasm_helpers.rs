@@ -621,9 +621,9 @@ mod tests {
     fn test_exported_functions() -> Result<(), Box<dyn Error>> {
         let mut b = WasmModuleBuilder::new();
 
-        b.add_global(ValType::I32, true, ExprBuilder::new()
+        let glob = b.add_global(ValType::I32, true, ExprBuilder::new()
             .with_instr(OpCode::I32Const)
-            .with_num(35u32)
+            .with_num(0u32)
         );
 
         let fty = b.add_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
@@ -632,6 +632,13 @@ mod tests {
             .with_instr(OpCode::LocalGet).with_num(0u32)
             .with_instr(OpCode::LocalGet).with_num(1u32)
             .with_instr(OpCode::I32Add)
+            .with_instr(OpCode::GlobalGet).with_num(glob)
+            .with_instr(OpCode::I32Add)
+
+            .with_instr(OpCode::GlobalGet).with_num(glob)
+            .with_instr(OpCode::I32Const).with_num(1u32)
+            .with_instr(OpCode::I32Add)
+            .with_instr(OpCode::GlobalSet).with_num(glob)
         );
         b.add_func_export("add", add_idx);
 
@@ -654,9 +661,11 @@ mod tests {
 
         let add = instance.exports.get_typed_function::<(i32, i32), i32>(&store, "add")?;
         assert_eq!(add.call(&mut store, 5, 5)?, 10);
+        assert_eq!(add.call(&mut store, 5, 5)?, 11);
+        assert_eq!(add.call(&mut store, 5, 5)?, 12);
 
         let complex = instance.exports.get_typed_function::<(i32, i32), i32>(&store, "complex")?;
-        assert_eq!(complex.call(&mut store, 10, 5)?, 150);
+        assert_eq!(complex.call(&mut store, 10, 5)?, 180);
 
         Ok(())
     }
