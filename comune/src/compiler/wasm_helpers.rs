@@ -267,6 +267,15 @@ pub trait LEB128: Copy + PartialEq + PartialOrd {
         new.try_extend_from_slice(self.to_leb128().as_ref())?;
         Ok(new)
     }
+    fn ass_to_leb128<const CAP: usize>(
+        self
+    ) -> ArrayVec<u8, CAP>
+        where [u8; Self::RESULT_SIZE]: AsRef<[u8]>
+    {
+        let mut new = ArrayVec::<u8, CAP>::new();
+        new.try_extend_from_slice(self.to_leb128().as_ref()).expect("Number too big");
+        new
+    }
 }
 
 macro_rules! leb128 {
@@ -274,7 +283,7 @@ macro_rules! leb128 {
     impl LEB128 for $ty {
         const RESULT_SIZE: usize = $len;
 
-        fn to_leb128(self) -> ArrayVec<u8, $len> {
+        fn to_leb128(self) -> ArrayVec<u8, {Self::RESULT_SIZE}> {
             let mut v = <$u>::from_ne_bytes(self.to_ne_bytes());
 
             let mut buf = ArrayVec::new();
@@ -301,6 +310,8 @@ leb128!(u64, u64, 10);
 leb128!(i64, u64, 10);
 leb128!(u128, u128, 19);
 leb128!(i128, u128, 19);
+leb128!(usize, usize, usize::BITS.div_ceil(7) as usize);
+leb128!(isize, usize, usize::BITS.div_ceil(7) as usize);
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BlockType {
@@ -409,9 +420,7 @@ impl WasmModuleBuilder {
         // Passive flag
         data.push(0x01);
         data.extend_from_slice(
-            u32::try_from(
-                bytes.len()
-            ).expect("So much data ?!").to_leb128().as_slice()
+            bytes.len().ass_to_leb128::<5>().as_slice()
         );
         data.extend_from_slice(bytes);
 
@@ -426,9 +435,7 @@ impl WasmModuleBuilder {
         data.push(0x00);
         data.extend_from_slice(&offset.build());
         data.extend_from_slice(
-            u32::try_from(
-                bytes.len()
-            ).expect("So much data ?!").to_leb128().as_slice()
+            bytes.len().ass_to_leb128::<5>().as_slice()
         );
         data.extend_from_slice(bytes);
 
@@ -451,7 +458,7 @@ impl WasmModuleBuilder {
         let mut data = vec![];
 
         data.extend_from_slice(
-            &u32::try_from(name.len()).expect("So much name?!").to_leb128()
+            &name.len().ass_to_leb128::<5>()
         );
         data.extend_from_slice(name.as_bytes());
         data.push(kind);
@@ -460,20 +467,45 @@ impl WasmModuleBuilder {
         self.append_segment(SectionId::Export, data)
     }
 
+    /// Appends a Function export and returns its idx
     pub fn add_func_export(&mut self, name: &str, idx: u32) -> u32 {
         self.add_export(name, 0x00, idx)
     }
 
+    /// Appends a Table export and returns its idx
     pub fn add_table_export(&mut self, name: &str, idx: u32) -> u32 {
         self.add_export(name, 0x01, idx)
     }
 
+    /// Appends a Memory export and returns its idx
     pub fn add_mem_export(&mut self, name: &str, idx: u32) -> u32 {
         self.add_export(name, 0x02, idx)
     }
 
+    /// Appends a Global export and returns its idx
     pub fn add_global_export(&mut self, name: &str, idx: u32) -> u32 {
         self.add_export(name, 0x03, idx)
+    }
+
+    /// Appends a type segment and returns its index
+    pub fn add_type(&mut self, params: Vec<ValType>, results: Vec<ValType>) -> u32 {
+        let mut data = vec![];
+
+        data.push(0x60);
+        data.extend_from_slice(params.len().ass_to_leb128::<5>().as_slice());
+        for s in params {
+            data.push(s.into());
+        }
+        data.extend_from_slice(results.len().ass_to_leb128::<5>().as_slice());
+        for s in results {
+            data.push(s.into());
+        }
+
+        self.append_segment(SectionId::Type, data)
+    }
+
+    pub fn add_function(&mut self, type_idx: u32) -> u32 {
+        self.append_segment(SectionId::Function, type_idx.to_leb128().to_vec())
     }
 
     pub fn build(mut self) -> Vec<u8> {
@@ -503,9 +535,21 @@ impl WasmModuleBuilder {
             .filter_map(|id| self.sections.get(&id).zip(Some(id)))
         {
             result.push(id.into());
+
+            let section_byte_size: usize = data.iter().map(|d| d.len())
+                .sum();
+
+            let vec_size_bytes = data.len().ass_to_leb128::<5>();
+
+            // Content size
             result.extend_from_slice(
-                u32::try_from(data.len()).expect("So much data?!")
-                    .to_leb128().as_slice()
+                // The vec size is part of the content
+                (section_byte_size + vec_size_bytes.len())
+                    .ass_to_leb128::<5>().as_slice()
+            );
+            // Almost all sections are vectors so just set theirs sizes
+            result.extend_from_slice(
+                vec_size_bytes.as_slice()
             );
             for d in data {
                 result.extend_from_slice(d);
@@ -514,3 +558,24 @@ impl WasmModuleBuilder {
         result
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+
+//     use std::io::Write;
+
+//     #[test]
+//     fn test1() {
+//         let mut b = WasmModuleBuilder::new();
+
+//         let mut v = ExprBuilder::new();
+//         v.push_instr(OpCode::I32Const);
+//         v.push_num(35u32);
+
+//         b.add_global(ValType::I32, true, v);
+//         let bts = b.build();
+//         let mut file = std::fs::File::create("out.wasm").unwrap();
+//         file.write_all(&bts).unwrap();
+//     }
+// }
