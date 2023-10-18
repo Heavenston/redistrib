@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::{Display, Debug}, marker::ConstParamTy};
+use std::{borrow::Cow, fmt::{Display, Debug}, marker::ConstParamTy, cmp::{min, max}};
 
 #[derive(PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
@@ -16,10 +16,34 @@ pub struct SrcPose {
     pub col: u32,
 }
 
+impl PartialOrd for SrcPose {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SrcPose {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.row.cmp(&other.row) {
+            std::cmp::Ordering::Equal => self.col.cmp(&other.col),
+            x => x,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct SrcRange {
     pub start: SrcPose,
     pub end: SrcPose,
+}
+
+impl SrcRange {
+    pub fn cover(self, other: Self) -> Self {
+        Self {
+            start: min(self.start, other.start),
+            end: max(self.end, other.end),
+        }
+    }
 }
 
 pub trait Token<'a> {
