@@ -11,16 +11,22 @@ pub enum LexerError {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct TokenPosition {
+pub struct SrcPose {
     pub row: u32,
     pub col: u32,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct SrcRange {
+    pub start: SrcPose,
+    pub end: SrcPose,
 }
 
 pub trait Token<'a> {
     type Static: Token<'static> + 'static;
 
     fn kind(&self) -> TokenType;
-    fn position(&self) -> TokenPosition;
+    fn range(&self) -> SrcRange;
     fn content(&'a self) -> &'a str;
 
     fn from_generic(gen: GenericToken<'a>) -> Option<Self>
@@ -37,16 +43,16 @@ pub trait KnownToken<'a>: Token<'a> {
 pub struct GenericToken<'a> {
     pub kind: TokenType,
     pub content: Cow<'a, str>,
-    pub pos: TokenPosition,
+    pub range: SrcRange,
 }
 
 impl<'a> Debug for GenericToken<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Token({:?}, kind {:?}, line {}, col {})",
+        write!(f, "Token({:?}, kind {:?}, {}:{} -> {}:{})",
             self.kind,
             self.content.as_ref(),
-            self.pos.row,
-            self.pos.col
+            self.range.start.row, self.range.start.col,
+            self.range.end.row, self.range.end.col,
         )
     }
 }
@@ -57,8 +63,8 @@ impl<'a> Token<'a> for GenericToken<'a> {
     fn kind(&self) -> TokenType {
         self.kind
     }
-    fn position(&self) -> TokenPosition {
-        self.pos
+    fn range(&self) -> SrcRange {
+        self.range
     }
     fn content(&'a self) -> &'a str {
         self.content.as_ref()
@@ -74,7 +80,7 @@ impl<'a> Token<'a> for GenericToken<'a> {
         GenericToken::<'static> {
             kind: self.kind.clone(),
             content: self.content.clone().into_owned().into(),
-            pos: self.pos,
+            range: self.range
         }
     }
 }
@@ -102,7 +108,7 @@ macro_rules! tokens {
         #[derive(Clone, Hash, PartialEq, Eq)]
         pub struct $tname<'a> {
             pub content: Cow<'a, str>,
-            pub pos: TokenPosition,
+            pub range: SrcRange,
         }
 
         impl<'a> Display for $tname<'a> {
@@ -115,8 +121,8 @@ macro_rules! tokens {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "Token({:?}, line {}, col {})",
                     self.content.as_ref(),
-                    self.pos.row,
-                    self.pos.col
+                    self.range.start.row,
+                    self.range.start.col
                 )
             }
         }
@@ -127,8 +133,8 @@ macro_rules! tokens {
             fn kind(&self) -> TokenType {
                 TokenType::$name
             }
-            fn position(&self) -> TokenPosition {
-                self.pos
+            fn range(&self) -> SrcRange {
+                self.range
             }
             fn content(&'a self) -> &'a str {
                 &*self.content
@@ -137,7 +143,7 @@ macro_rules! tokens {
             fn from_generic(gen: GenericToken<'a>) -> Option<Self> {
                 if gen.kind == TokenType::$name {
                     Some(Self {
-                        pos: gen.pos,
+                        range: gen.range,
                         content: gen.content,
                     })
                 }
@@ -148,14 +154,14 @@ macro_rules! tokens {
             fn to_static(&self) -> $tname<'static> {
                 $tname {
                     content: self.content.clone().into_owned().into(),
-                    pos: self.pos,
+                    range: self.range,
                 }
             }
             fn to_generic(&self) -> GenericToken<'a> {
                 GenericToken {
                     kind: TokenType::$name,
                     content: self.content.clone().into_owned().into(),
-                    pos: self.pos,
+                    range: self.range,
                 }
             }
         }
@@ -232,18 +238,18 @@ const ID_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Tokenizer<'a> {
     source: &'a str,
-    chs: usize,
-    col: u32,
-    row: u32,
+    peeking_index: usize,
+    peeking_col: u32,
+    peeking_row: u32,
 }
 
 impl<'a> Tokenizer<'a> {
     pub fn new(src: &'a str) -> Self {
         Self {
             source: src,
-            chs: 0,
-            col: 0,
-            row: 0,
+            peeking_index: 0,
+            peeking_col: 0,
+            peeking_row: 0,
         }
     }
 
@@ -259,13 +265,13 @@ impl<'a> Tokenizer<'a> {
         let ch = self.peek_char()?;
 
         self.source = &self.source[1..];
-        self.chs += 1;
+        self.peeking_index += 1;
         if ch != '\n' {
-            self.col += 1;
+            self.peeking_col += 1;
         }
         else {
-            self.row += 1;
-            self.col = 0;
+            self.peeking_row += 1;
+            self.peeking_col = 0;
         }
 
         Some(ch)
@@ -274,14 +280,14 @@ impl<'a> Tokenizer<'a> {
     fn take_chars_while<F>(&mut self, mut p: F) -> &'a str
         where F: FnMut(char, &mut Self) -> bool
     {
-        let start_chs = self.chs;
+        let start_index = self.peeking_index;
         let start_str = self.source;
 
         while self.peek_char().is_some_and(|c| p(c, self)) {
             self.take_char();
         }
 
-        &start_str[0..self.chs - start_chs]
+        &start_str[0..self.peeking_index - start_index]
     }
 
     fn take_char_if(&mut self, ch: char) -> bool {
@@ -423,8 +429,8 @@ impl<'a> Tokenizer<'a> {
             Some('=') => Ok(TokenType::Equal),
 
             c => Err(LexerError::UnexpectedCharError {
-                row: self.row,
-                col: self.col,
+                row: self.peeking_row,
+                col: self.peeking_col,
                 char: c,
             }),
         }
@@ -437,10 +443,9 @@ impl<'a> Tokenizer<'a> {
 
         let ch = self.peek_char();
 
-        let start_chs = self.chs;
+        let start_chs = self.peeking_index;
         let start_str = self.source;
-        let row = self.row;
-        let col = self.col;
+        let start = SrcPose { row: self.peeking_row, col: self.peeking_col };
 
         let kind = match ch {
             None => Ok(TokenType::EOF),
@@ -455,13 +460,16 @@ impl<'a> Tokenizer<'a> {
             Err(e) => return Err(e),
         };
 
-        let len = self.chs - start_chs;
+        let len = self.peeking_index - start_chs;
         let content = Cow::from(&start_str[0..len]);
 
         Ok(GenericToken {
             kind,
             content,
-            pos: TokenPosition { row, col }
+            range: SrcRange {
+                start,
+                end: SrcPose { row: self.peeking_row, col: self.peeking_col },
+            },
         })
     }
 }
@@ -610,6 +618,8 @@ impl<'a> Iterator for TokenIterator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches::assert_matches;
+
     use super::*;
 
     #[test]
@@ -624,102 +634,159 @@ data on state = 123456 + 031.4 -> 5
         }
 
         let mut tokens = Tokenizer::new(SRC);
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Machine,
-            content: "machine".into(),
-            pos: TokenPosition { row: 0, col: 0 },
+            content: Cow::Borrowed("machine"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 0 },
+                end: SrcPose { row: 0, col: 7 },
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Dash,
-            content: "-".into(),
-            pos: TokenPosition { row: 0, col: 8 },
+            content: Cow::Borrowed("-"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 8 },
+                end: SrcPose { row: 0, col: 9 },
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Star,
-            content: "*".into(),
-            pos: TokenPosition { row: 0, col: 9 },
+            content: Cow::Borrowed("*"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 9 },
+                end: SrcPose { row: 0, col: 10 },
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Plus,
-            content: "+".into(),
-            pos: TokenPosition { row: 0, col: 10 },
+            content: Cow::Borrowed("+"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 10 },
+                end: SrcPose { row: 0, col: 11 },
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Dash,
-            content: "-".into(),
-            pos: TokenPosition { row: 0, col: 11 },
+            content: Cow::Borrowed("-"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 11 },
+                end: SrcPose { row: 0, col: 12 },
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::BSlash,
-            content: "\\".into(),
-            pos: TokenPosition { row: 0, col: 12 },
+            content: Cow::Borrowed("\\"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 12 },
+                end: SrcPose { row: 0, col: 13 },
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Iden,
-            content: "test".into(),
-            pos: TokenPosition { row: 0, col: 14 },
+            content: Cow::Borrowed("test"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 14 },
+                end: SrcPose { row: 0, col: 18 },
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Dash,
-            content: "-".into(),
-            pos: TokenPosition { row: 0, col: 18 },
+            content: Cow::Borrowed("-"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 18 },
+                end: SrcPose { row: 0, col: 19 },
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Iden,
-            content: "test".into(),
-            pos: TokenPosition { row: 0, col: 19 },
+            content: Cow::Borrowed("test"),
+            range: SrcRange {
+                start: SrcPose { row: 0, col: 19 },
+                end: SrcPose { row: 0, col: 23 },
+            }
         }));
 
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::LineComment,
-            content: "# Bite".into(),
-            pos: TokenPosition { row: 1, col: 0 },
+            content: Cow::Borrowed("# Bite"),
+            range: SrcRange {
+                start: SrcPose { row: 1, col: 0 },
+                end: SrcPose { row: 1, col: 6 }
+            }
         }));
 
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Data,
-            content: "data".into(),
-            pos: TokenPosition { row: 2, col: 0 },
+            content: Cow::Borrowed("data"),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 0 },
+                end: SrcPose { .. }
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::On,
-            content: "on".into(),
-            pos: TokenPosition { row: 2, col: 5 },
+            content: Cow::Borrowed("on"),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 5 },
+                end: SrcPose { .. }
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::State,
-            content: "state".into(),
-            pos: TokenPosition { row: 2, col: 8 },
+            content: Cow::Borrowed("state"),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 8 },
+                end: SrcPose { .. }
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Equal,
-            content: "=".into(),
-            pos: TokenPosition { row: 2, col: 14 },
+            content: Cow::Borrowed("="),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 14 },
+                end: SrcPose { .. }
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::DecimalLiteral,
-            content: "123456".into(),
-            pos: TokenPosition { row: 2, col: 16 },
+            content: Cow::Borrowed("123456"),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 16 },
+                end: SrcPose { .. }
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Plus,
-            content: "+".into(),
-            pos: TokenPosition { row: 2, col: 23 },
+            content: Cow::Borrowed("+"),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 23 },
+                end: SrcPose { .. }
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::DecimalLiteral,
-            content: "031.4".into(),
-            pos: TokenPosition { row: 2, col: 25 },
+            content: Cow::Borrowed("031.4"),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 25 },
+                end: SrcPose { .. }
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::ThinArrow,
-            content: "->".into(),
-            pos: TokenPosition { row: 2, col: 31 },
+            content: Cow::Borrowed("->"),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 31 },
+                end: SrcPose { .. }
+            }
         }));
-        assert_eq!(tokens.get(), Ok(GenericToken {
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::DecimalLiteral,
-            content: "5".into(),
-            pos: TokenPosition { row: 2, col: 34 },
+            content: Cow::Borrowed("5"),
+            range: SrcRange {
+                start: SrcPose { row: 2, col: 34 },
+                end: SrcPose { .. }
+            }
         }));
     }
 }
