@@ -807,9 +807,9 @@ pub struct ParseContext<'a> {
 }
 
 impl<'a> ParseContext<'a> {
-    pub fn from_src(src: &'a str) -> Self {
+    pub fn from_src(filename: &'a str, src: &'a str) -> Self {
         Self {
-            tokens: TokenStream::new(src),
+            tokens: TokenStream::new(filename, src),
         }
     }
 
@@ -1544,7 +1544,7 @@ mod tests {
 
     #[test]
     fn expr_simple() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("5 + 5 / 5 + x * 5");
+        let mut ctx = ParseContext::from_src("<test>", "5 + 5 / 5 + x * 5");
         let expr = Expr::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "((5 + (5 / 5)) + (x * 5))");
@@ -1554,7 +1554,7 @@ mod tests {
 
     #[test]
     fn expr_if() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("if x == 10 { 5+5; }");
+        let mut ctx = ParseContext::from_src("<test>", "if x == 10 { 5+5; }");
         let expr = Expr::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "if (x == 10) {(5 + 5);}");
@@ -1564,7 +1564,7 @@ mod tests {
 
     #[test]
     fn expr_if_else() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("if (a + 5) == 10 { 5+5 } else { 0 }");
+        let mut ctx = ParseContext::from_src("<test>", "if (a + 5) == 10 { 5+5 } else { 0 }");
         let expr = Expr::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "if (((a + 5)) == 10) {(5 + 5)} else {0}");
@@ -1574,7 +1574,7 @@ mod tests {
 
     #[test]
     fn expr_if_else_if() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("if (a + 5) == 10 { 5+5 } else if true { 1 } else { 0 }");
+        let mut ctx = ParseContext::from_src("<test>", "if (a + 5) == 10 { 5+5 } else if true { 1 } else { 0 }");
         let expr = Expr::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "if (((a + 5)) == 10) {(5 + 5)} else if true {1} else {0}");
@@ -1584,7 +1584,7 @@ mod tests {
 
     #[test]
     fn expr_while() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("while true { test }");
+        let mut ctx = ParseContext::from_src("<test>", "while true { test }");
         let expr = Expr::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "while true {test}");
@@ -1594,7 +1594,7 @@ mod tests {
 
     #[test]
     fn block() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("{ a = 10; c = true && false; b = a + c; }");
+        let mut ctx = ParseContext::from_src("<test>", "{ a = 10; c = true && false; b = a + c; }");
         let expr = Expr::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "{(a = 10);(c = (true && false));(b = (a + c));}");
@@ -1604,7 +1604,7 @@ mod tests {
 
     #[test]
     fn block2() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("{ a = 10; c = true && false; b = a + c }");
+        let mut ctx = ParseContext::from_src("<test>", "{ a = 10; c = true && false; b = a + c }");
         let expr = Expr::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "{(a = 10);(c = (true && false));(b = (a + c))}");
@@ -1614,7 +1614,7 @@ mod tests {
 
     #[test]
     fn expr_function_call() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("(this_is_a_function + 5)(5, (10 + 10),)");
+        let mut ctx = ParseContext::from_src("<test>", "(this_is_a_function + 5)(5, (10 + 10),)");
         let expr = Expr::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "(((this_is_a_function + 5))(5,((10 + 10)),))");
@@ -1647,7 +1647,7 @@ mod tests {
             }
         }
         "#;
-        let mut ctx = ParseContext::from_src(src);
+        let mut ctx = ParseContext::from_src("<test>", src);
         let expr = MachineDeclaration::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "machine name { initial state first { data {name string,id u32,mut received i32} =increment> second; (reveived >= 10) -> {}; on message (sender u32) {(a = 10);} } state second { =decrement> first; } }");
@@ -1671,7 +1671,7 @@ mod tests {
             }
         }
         "#;
-        let mut ctx = ParseContext::from_src(src);
+        let mut ctx = ParseContext::from_src("<test>", src);
         let expr = MachineDeclaration::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "machine name { machine inner { } initial state first { machine even_more_inner { } data {} } }");
@@ -1684,7 +1684,7 @@ mod tests {
         let src = r#"
         let test = 5;
         "#;
-        let mut ctx = ParseContext::from_src(src);
+        let mut ctx = ParseContext::from_src("<test>", src);
         let expr = LetDeclaration::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "let test = 5;");
@@ -1697,7 +1697,7 @@ mod tests {
         let src = r#"
         let plus a b = a + b;
         "#;
-        let mut ctx = ParseContext::from_src(src);
+        let mut ctx = ParseContext::from_src("<test>", src);
         let expr = LetDeclaration::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "let plus a b = (a + b);");
@@ -1714,7 +1714,7 @@ mod tests {
             a * c
         };
         "#;
-        let mut ctx = ParseContext::from_src(src);
+        let mut ctx = ParseContext::from_src("<test>", src);
         let expr = LetDeclaration::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "let plus a b = {let c = (a + b);(a * c)};");

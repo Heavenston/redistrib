@@ -203,6 +203,7 @@ dependencies = [
  "arrayvec",
  "derive_more",
  "num_enum",
+ "partial-min-max",
  "thiserror",
  "vecmap-rs",
  "wasmer",
@@ -1041,6 +1042,12 @@ dependencies = [
  "smallvec",
  "windows-targets",
 ]
+
+[[package]]
+name = "partial-min-max"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6448add382c60bbbc64f9dab41309a12ec530c05191601042f911356ac09758c"
 
 [[package]]
 name = "percent-encoding"
