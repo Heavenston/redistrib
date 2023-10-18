@@ -2,35 +2,31 @@
 pub mod ast {
     use std::marker::PhantomData;
     use std::fmt::{ Debug, Display };
+    use std::sync::atomic::AtomicU64;
 
     use crate::lexer::*;
 
     use derive_more::*;
 
-    #[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     pub struct NodeId {
-        id: u32,
+        id: u64,
+    }
+
+    impl NodeId {
+        pub(super) fn next() -> Self {
+            static NODE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+            Self {
+                id: NODE_ID_COUNTER
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            }
+        }
     }
 
     impl Debug for NodeId {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "NodeId({})", self.id)
-        }
-    }
-
-    impl NodeId {
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        pub fn next(self) -> Self {
-            Self {
-                id: self.id + 1,
-            }
-        }
-
-        pub fn inc(&mut self) {
-            *self = self.next();
         }
     }
 
@@ -807,21 +803,18 @@ impl<'a> Util<'a> for TokenStream<'a> {
 }
 
 pub struct ParseContext<'a> {
-    pub last_node_id: NodeId,
     pub tokens: TokenStream<'a>,
 }
 
 impl<'a> ParseContext<'a> {
     pub fn from_src(src: &'a str) -> Self {
         Self {
-            last_node_id: NodeId::new(),
             tokens: TokenStream::new(src),
         }
     }
 
     pub fn new_id(&mut self) -> NodeId {
-        self.last_node_id.inc();
-        self.last_node_id
+        NodeId::next()
     }
 }
 
