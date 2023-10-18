@@ -12,6 +12,12 @@ pub mod ast {
         id: u32,
     }
 
+    impl Debug for NodeId {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "NodeId({})", self.id)
+        }
+    }
+
     impl NodeId {
         pub fn new() -> Self {
             Self::default()
@@ -107,6 +113,8 @@ pub mod ast {
 
     #[derive(Debug)]
     pub struct LetDeclaration<'a> {
+        pub id: NodeId,
+
         pub let_: LetToken<'a>,
         pub mut_: Option<MutToken<'a>>,
         pub name: IdenToken<'a>,
@@ -149,15 +157,17 @@ pub mod ast {
     /// ```
     #[derive(Debug)]
     pub struct MachineDeclaration<'a> {
+        pub id: NodeId,
+
         pub machine_token: MachineToken<'a>,
-        pub id: IdenToken<'a>,
+        pub iden: IdenToken<'a>,
         pub stmts: StmtContainer<'a, MachineToken<'a>, MachineStmt<'a>>,
     }
 
     impl<'a> Display for MachineDeclaration<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{} ", self.machine_token)?;
-            write!(f, "{} ", self.id)?;
+            write!(f, "{} ", self.iden)?;
             write!(f, "{}", self.stmts)?;
 
             Ok(())
@@ -185,9 +195,11 @@ pub mod ast {
     /// A State declaration
     #[derive(Debug)]
     pub struct StateDeclaration<'a> {
+        pub id: NodeId,
+
         pub initial_token: Option<InitialToken<'a>>,
         pub state_token: StateToken<'a>,
-        pub id: IdenToken<'a>,
+        pub iden: IdenToken<'a>,
         pub stmts: StmtContainer<'a, StateToken<'a>, StateStmt<'a>>,
     }
 
@@ -197,7 +209,7 @@ pub mod ast {
                 write!(f, "{} ", initial)?;
             }
             write!(f, "{} ", self.state_token)?;
-            write!(f, "{} ", self.id)?;
+            write!(f, "{} ", self.iden)?;
             write!(f, "{}", self.stmts)?;
 
             Ok(())
@@ -235,6 +247,8 @@ pub mod ast {
     /// ```
     #[derive(Debug)]
     pub struct StateTransition<'a> {
+        pub id: NodeId,
+
         pub equal: EqualToken<'a>,
         pub name_id: IdenToken<'a>,
         pub caret_close: CaretCloseToken<'a>,
@@ -275,6 +289,8 @@ pub mod ast {
     /// A dynamic statement
     #[derive(Debug)]
     pub struct Dyn<'a> {
+        pub id: NodeId,
+
         pub src_expr: Expr<'a>,
         pub thin_arrow: ThinArrowToken<'a>,
         pub stmt: Expr<'a>,
@@ -300,6 +316,8 @@ pub mod ast {
     /// A state-data statement
     #[derive(Debug)]
     pub struct Data<'a> {
+        pub id: NodeId,
+
         pub data: DataToken<'a>,
         pub curly_open: CurlyOpenToken<'a>,
         pub stmts: SeparatedList<'a, CurlyCloseToken<'a>, ComaToken<'a>, DataStmt<'a>>,
@@ -323,7 +341,7 @@ pub mod ast {
     #[derive(Debug)]
     pub struct DataStmt<'a> {
         pub mutability: Option<MutToken<'a>>,
-        pub id: IdenToken<'a>,
+        pub iden: IdenToken<'a>,
         pub ty: Type<'a>,
     }
 
@@ -333,7 +351,7 @@ pub mod ast {
                 write!(f, "{mut_} ")?;
             }
             write!(f, "{} {}",
-                self.id, self.ty
+                self.iden, self.ty
             )?;
 
             Ok(())
@@ -343,8 +361,10 @@ pub mod ast {
     /// A 'on' statement
     #[derive(Debug)]
     pub struct On<'a> {
+        pub id: NodeId,
+
         pub on: OnToken<'a>,
-        pub id: IdenToken<'a>,
+        pub iden: IdenToken<'a>,
         pub paren_open: ParenOpenToken<'a>,
         pub params: SeparatedList<'a, ParenCloseToken<'a>, ComaToken<'a>, Parameter<'a>>,
         pub paren_close: ParenCloseToken<'a>,
@@ -354,7 +374,7 @@ pub mod ast {
     impl<'a> Display for On<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{} {} {}{}{} {}",
-                self.on, self.id, self.paren_open, self.params,
+                self.on, self.iden, self.paren_open, self.params,
                 self.paren_close, self.body
             )?;
 
@@ -365,14 +385,16 @@ pub mod ast {
     /// A parameter of a function / 'on' statement
     #[derive(Debug)]
     pub struct Parameter<'a> {
-        pub id: IdenToken<'a>,
+        pub id: NodeId,
+
+        pub iden: IdenToken<'a>,
         pub ty: Type<'a>,
     }
 
     impl<'a> Display for Parameter<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{} {}",
-                self.id, self.ty
+                self.iden, self.ty
             )?;
 
             Ok(())
@@ -398,6 +420,8 @@ pub mod ast {
     /// Operator in the infix form
     #[derive(Debug)]
     pub struct InfixOp<'a, Left, Op: KnownToken<'a>, Right> {
+        pub id: NodeId,
+
         pub left: Box<Left>,
         pub op: Op,
         pub right: Box<Right>,
@@ -421,6 +445,8 @@ pub mod ast {
     /// An expression surrounded by parenthesis
     #[derive(Debug)]
     pub struct ParentisedExpr<'a> {
+        pub id: NodeId,
+
         pub open: ParenOpenToken<'a>,
         pub expr: Box<Expr<'a>>,
         pub close: ParenCloseToken<'a>,
@@ -436,6 +462,8 @@ pub mod ast {
 
     #[derive(Debug)]
     pub struct SemiedExpr<'a> {
+        pub id: NodeId,
+
         pub expr: Box<Expr<'a>>,
         pub semi: SemiColonToken<'a>,
     }
@@ -470,6 +498,8 @@ pub mod ast {
     /// curly braces
     #[derive(Debug)]
     pub struct BlockExpr<'a> {
+        pub id: NodeId,
+
         pub open: CurlyOpenToken<'a>,
 
         pub stmts: Box<[BlockStatement<'a>]>,
@@ -498,6 +528,8 @@ pub mod ast {
     /// An if expression
     #[derive(Debug)]
     pub struct IfExpr<'a>{
+        pub id: NodeId,
+
         pub if_: IfToken<'a>,
         pub cond: Box<Expr<'a>>,
         pub then: Box<Expr<'a>>,
@@ -520,6 +552,8 @@ pub mod ast {
     /// A while expression
     #[derive(Debug)]
     pub struct WhileExpr<'a>{
+        pub id: NodeId,
+
         pub while_: WhileToken<'a>,
         pub cond: Box<Expr<'a>>,
         pub do_: Box<Expr<'a>>,
@@ -557,6 +591,8 @@ pub mod ast {
 
     #[derive(Debug)]
     pub struct FunctionCallExpr<'a> {
+        pub id: NodeId,
+
         pub expr: Box<Expr<'a>>,
         pub paren_open: ParenOpenToken<'a>,
         pub arguments: SeparatedList<'a,
@@ -636,6 +672,8 @@ pub mod ast {
 
     #[derive(Debug)]
     pub struct File<'a> {
+        pub id: NodeId,
+
         pub declarations: Box<[Declaration<'a>]>,
         pub eof: EOFToken<'a>,
     }
@@ -905,12 +943,14 @@ impl<'a> Parsable<'a> for MachineDeclaration<'a> {
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let machine_token = ctx.tokens.expected::<MachineToken>()?;
-        let id = ctx.tokens.expected::<IdenToken>()?;
+        let iden = ctx.tokens.expected::<IdenToken>()?;
         let stmts = StmtContainer::parse(ctx)?;
 
         Ok(MachineDeclaration {
+            id: ctx.new_id(),
+
             machine_token,
-            id,
+            iden,
             stmts,
         })
     }
@@ -943,13 +983,15 @@ impl<'a> Parsable<'a> for StateDeclaration<'a> {
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let initial_token = ctx.tokens.get_eq::<InitialToken>()?;
         let state_token = ctx.tokens.expected::<StateToken>()?;
-        let id = ctx.tokens.expected::<IdenToken>()?;
+        let iden = ctx.tokens.expected::<IdenToken>()?;
         let stmts = StmtContainer::parse(ctx)?;
 
         Ok(StateDeclaration {
+            id: ctx.new_id(),
+
             initial_token,
             state_token,
-            id,
+            iden,
             stmts,
         })
     }
@@ -987,6 +1029,8 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         Ok(StateTransition {
+            id: ctx.new_id(),
+
             equal: parse(ctx)?,
             name_id: parse(ctx)?,
             caret_close: parse(ctx)?,
@@ -1016,6 +1060,8 @@ impl<'a> Parsable<'a> for LetDeclaration<'a> {
         let semi = parse(ctx)?;
 
         Ok(Self {
+            id: ctx.new_id(),
+
             let_,
             mut_,
             name,
@@ -1059,6 +1105,8 @@ impl<'a> Parsable<'a> for Dyn<'a> {
             else { Some(ctx.tokens.expected()?) };
 
         Ok(Self {
+            id: ctx.new_id(),
+
             src_expr,
             thin_arrow,
             stmt,
@@ -1081,6 +1129,8 @@ impl<'a> Parsable<'a> for Data<'a> {
         let curly_close = ctx.tokens.expected::<CurlyCloseToken>()?;
 
         Ok(Self {
+            id: ctx.new_id(),
+
             data,
             curly_open,
             stmts,
@@ -1104,7 +1154,7 @@ impl<'a> Parsable<'a> for DataStmt<'a> {
 
         Ok(Self {
             mutability,
-            id,
+            iden: id,
             ty,
         })
     }
@@ -1119,15 +1169,17 @@ impl<'a> Parsable<'a> for On<'a> {
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let on = ctx.tokens.expected::<OnToken>()?;
-        let id = ctx.tokens.expected::<IdenToken>()?;
+        let iden = ctx.tokens.expected::<IdenToken>()?;
         let paren_open = ctx.tokens.expected::<ParenOpenToken>()?;
         let params = SeparatedList::parse(ctx)?;
         let paren_close = ctx.tokens.expected::<ParenCloseToken>()?;
         let body = BlockExpr::parse(ctx)?;
 
         Ok(Self {
+            id: ctx.new_id(),
+
             on,
-            id,
+            iden,
             paren_open,
             params,
             paren_close,
@@ -1186,6 +1238,8 @@ impl<'a> Expr<'a> {
                 match ctx.tokens.peek()?.kind {
                 $($tt if precedence == $p => {
                     left = $k(InfixOp {
+                        id: ctx.new_id(),
+
                         left: Box::new(left),
                         op: ctx.tokens.expected()?,
                         right: Box::new(Expr::expr_parse(ctx, precedence + 1)?),
@@ -1226,6 +1280,8 @@ impl<'a> Expr<'a> {
             match ctx.tokens.peek()?.kind {
                 TokenType::ParenOpen if precedence == 6 => {
                     left = Self::FunctionCall(FunctionCallExpr {
+                        id: ctx.new_id(),
+
                         expr: Box::new(left),
                         paren_open: ctx.tokens.expected()?,
                         arguments: parse(ctx)?,
@@ -1270,6 +1326,8 @@ impl<'a> Parsable<'a> for ParentisedExpr<'a> {
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         Ok(ParentisedExpr {
+            id: ctx.new_id(),
+
             open: parse(ctx)?,
             expr: Box::new(parse(ctx)?),
             close: parse(ctx)?,
@@ -1286,6 +1344,8 @@ impl<'a> Parsable<'a> for FunctionCallExpr<'a> {
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         Ok(Self {
+            id: ctx.new_id(),
+
             expr: Box::new(parse(ctx)?),
             paren_open: parse(ctx)?,
             arguments: parse(ctx)?,
@@ -1326,6 +1386,8 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
                     if ctx.tokens.peek_eq(TokenType::SemiColon)?.is_some() =>
                 {
                     stmts.push(BlockStatement::Expr(SemiedExpr {
+                        id: ctx.new_id(),
+
                         expr: Box::new(e),
                         semi: parse(ctx)?,
                     }));
@@ -1341,6 +1403,8 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
         let close = parse(ctx)?;
 
         Ok(BlockExpr {
+            id: ctx.new_id(),
+
             open,
             stmts: stmts.into_boxed_slice(),
             last_expr,
@@ -1372,7 +1436,9 @@ impl<'a> Parsable<'a> for Parameter<'a> {
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         Ok(Self {
-            id: parse(ctx)?,
+            id: ctx.new_id(),
+
+            iden: parse(ctx)?,
             ty: parse(ctx)?,
         })
     }
@@ -1412,6 +1478,8 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
         }
 
         Ok(Self {
+            id: ctx.new_id(),
+
             if_,
             cond: Box::new(cond),
             then: Box::new(then),
@@ -1441,6 +1509,8 @@ impl<'a> Parsable<'a> for WhileExpr<'a> {
         }
 
         Ok(Self {
+            id: ctx.new_id(),
+
             while_,
             cond: Box::new(cond),
             do_: Box::new(do_),
@@ -1465,6 +1535,8 @@ impl<'a> Parsable<'a> for File<'a> {
         let eof = ctx.tokens.expected::<EOFToken>()?;
 
         Ok(Self {
+            id: ctx.new_id(),
+
             declarations: decls.into_boxed_slice(),
             eof,
         })
