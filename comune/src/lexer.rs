@@ -207,10 +207,13 @@ macro_rules! tokens {
 
         impl<'a> Debug for $tname<'a> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "Token({:?}, line {}, col {})",
+                write!(f, "Token({:?}, {:?}({}:{} -> {}:{}))",
                     self.content.as_ref(),
+                    self.range.start().file,
                     self.range.start().row,
-                    self.range.start().col
+                    self.range.start().col,
+                    self.range.end().row,
+                    self.range.end().col
                 )
             }
         }
