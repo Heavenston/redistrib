@@ -565,13 +565,61 @@ pub mod ast {
         }
     }
 
+    #[derive(Debug, From)]
+    pub struct DecimalLiteral<'a> {
+        pub id: NodeId,
+        pub tok: DecimalLiteralToken<'a>,
+    }
+
+    impl<'a> Display for DecimalLiteral<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.tok)
+        }
+    }
+
+    #[derive(Debug, From)]
+    pub struct StringLiteral<'a> {
+        pub id: NodeId,
+        pub tok: StringLiteralToken<'a>,
+    }
+
+    impl<'a> Display for StringLiteral<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.tok)
+        }
+    }
+
+    #[derive(Debug, From)]
+    pub struct TrueLiteral<'a> {
+        pub id: NodeId,
+        pub tok: TrueToken<'a>,
+    }
+
+    impl<'a> Display for TrueLiteral<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.tok)
+        }
+    }
+
+    #[derive(Debug, From)]
+    pub struct FalseLiteral<'a> {
+        pub id: NodeId,
+        pub tok: FalseToken<'a>,
+    }
+
+    impl<'a> Display for FalseLiteral<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.tok)
+        }
+    }
+
     /// A literal value
     #[derive(Debug, From)]
     pub enum AnyLiteral<'a> {
-        Decimal(DecimalLiteralToken<'a>),
-        String(StringLiteralToken<'a>),
-        True(TrueToken<'a>),
-        False(FalseToken<'a>),
+        Decimal(DecimalLiteral<'a>),
+        String(StringLiteral<'a>),
+        True(TrueLiteral<'a>),
+        False(FalseLiteral<'a>),
     }
 
     impl<'a> Display for AnyLiteral<'a> {
@@ -1153,6 +1201,70 @@ impl<'a> Parsable<'a> for DataStmt<'a> {
     }
 }
 
+impl<'a> Parsable<'a> for DecimalLiteral<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            DecimalLiteralToken
+        )
+    }
+
+    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
+        Ok(Self {
+            id: ctx.new_id(),
+
+            tok: ctx.tokens.expected()?,
+        })
+    }
+}
+
+impl<'a> Parsable<'a> for StringLiteral<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            StringLiteralToken
+        )
+    }
+
+    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
+        Ok(Self {
+            id: ctx.new_id(),
+
+            tok: ctx.tokens.expected()?,
+        })
+    }
+}
+
+impl<'a> Parsable<'a> for TrueLiteral<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            TrueToken
+        )
+    }
+
+    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
+        Ok(Self {
+            id: ctx.new_id(),
+
+            tok: ctx.tokens.expected()?,
+        })
+    }
+}
+
+impl<'a> Parsable<'a> for FalseLiteral<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            FalseToken
+        )
+    }
+
+    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
+        Ok(Self {
+            id: ctx.new_id(),
+
+            tok: ctx.tokens.expected()?,
+        })
+    }
+}
+
 impl<'a> Parsable<'a> for On<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
@@ -1193,10 +1305,10 @@ impl<'a> Parsable<'a> for AnyLiteral<'a> {
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         l_one!(ctx;
-            Self::String => StringLiteralToken,
-            Self::Decimal => DecimalLiteralToken,
-            Self::False => FalseToken,
-            Self::True => TrueToken
+            Self::String => StringLiteral,
+            Self::Decimal => DecimalLiteral,
+            Self::False => FalseLiteral,
+            Self::True => TrueLiteral
         )
     }
 }
