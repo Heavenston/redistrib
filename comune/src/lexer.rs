@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::{Display, Debug}, marker::ConstParamTy};
+use std::{ borrow::Cow, fmt::{ Display, Debug }, marker::ConstParamTy };
 
 #[derive(PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
@@ -279,7 +279,9 @@ tokens!(
 
     If(IfToken, "'if'"),
     Else(ElseToken, "'else'"),
+    Then(ThenToken, "'then'"),
     While(WhileToken, "'while'"),
+    Do(DoToken, "'do'"),
 
     True(TrueToken, "'true'"),
     False(FalseToken, "'false'"),
@@ -415,7 +417,9 @@ impl<'a> Tokenizer<'a> {
 
             "if" => Ok(TokenType::If),
             "else" => Ok(TokenType::Else),
+            "then" => Ok(TokenType::Then),
             "while" => Ok(TokenType::While),
+            "do" => Ok(TokenType::Do),
 
             "true" => Ok(TokenType::True),
             "false" => Ok(TokenType::False),
@@ -722,7 +726,7 @@ mod tests {
     #[test]
     pub fn simple() {
         const SRC: &str = "machine -*+-\\ test-test
-# Bite
+then # Bite then
 data on state = 123456 + 031.4 -> 5
         ";
 
@@ -814,11 +818,19 @@ data on state = 123456 + 031.4 -> 5
         }));
 
         assert_matches!(tokens.get(), Ok(GenericToken {
-            kind: TokenType::LineComment,
-            content: Cow::Borrowed("# Bite"),
+            kind: TokenType::Then,
+            content: Cow::Borrowed("then"),
             range: SrcRange {
                 start_row: 1, start_col: 0,
-                end_row: 1, end_col: 6,
+                ..
+            }
+        }));
+
+        assert_matches!(tokens.get(), Ok(GenericToken {
+            kind: TokenType::LineComment,
+            content: Cow::Borrowed("# Bite then"),
+            range: SrcRange {
+                start_row: 1, start_col: 5,
                 ..
             }
         }));

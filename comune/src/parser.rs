@@ -526,16 +526,18 @@ pub mod ast {
     pub struct IfExpr<'a>{
         pub id: NodeId,
 
-        pub if_: IfToken<'a>,
+        pub if_kw: IfToken<'a>,
         pub cond: Box<Expr<'a>>,
+        pub then_kw: ThenToken<'a>,
         pub then: Box<Expr<'a>>,
         pub else_: Option<(ElseToken<'a>, Box<Expr<'a>>)>,
     }
 
     impl<'a> Display for IfExpr<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{} ", self.if_)?;
+            write!(f, "{} ", self.if_kw)?;
             write!(f, "{} ", self.cond)?;
+            write!(f, "{} ", self.then_kw)?;
             write!(f, "{}", self.then)?;
             if let Some((else_, expr)) = &self.else_ {
                 write!(f, " {else_} {expr}")?;
@@ -552,14 +554,16 @@ pub mod ast {
 
         pub while_: WhileToken<'a>,
         pub cond: Box<Expr<'a>>,
+        pub do_kw: DoToken<'a>,
         pub do_: Box<Expr<'a>>,
     }
 
     impl<'a> Display for WhileExpr<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{}", self.while_)?;
-            write!(f, " {} ", self.cond)?;
-            write!(f, "{}", self.do_)?;
+            write!(f, " {}", self.cond)?;
+            write!(f, " {}", self.do_kw)?;
+            write!(f, " {}", self.do_)?;
 
             Ok(())
         }
@@ -634,22 +638,22 @@ pub mod ast {
     }
 
     #[derive(Debug)]
-    pub struct FunctionCallExpr<'a> {
+    pub struct FunctionApplicationExpr<'a> {
         pub id: NodeId,
 
         pub expr: Box<Expr<'a>>,
-        pub paren_open: ParenOpenToken<'a>,
-        pub arguments: SeparatedList<'a,
-            ParenCloseToken<'a>, ComaToken<'a>, Expr<'a>
-        >,
-        pub paren_close: ParenCloseToken<'a>,
+        pub arguments: Box<[Expr<'a>]>,
     }
 
-    impl<'a> Display for FunctionCallExpr<'a> {
+    impl<'a> Display for FunctionApplicationExpr<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}{}{}{}",
-                self.expr, self.paren_open, self.arguments, self.paren_close
-            )
+            write!(f, "{}", self.expr)?;
+
+            for arg in self.arguments.iter() {
+                write!(f, " {arg}")?;
+            }
+
+            Ok(())
         }
     }
 
@@ -675,7 +679,7 @@ pub mod ast {
         Times(InfixOp<'a, Expr<'a>, StarToken<'a>, Expr<'a>>),
         Divide(InfixOp<'a, Expr<'a>, FSlashToken<'a>, Expr<'a>>),
 
-        FunctionCall(FunctionCallExpr<'a>),
+        FunctionApplication(FunctionApplicationExpr<'a>),
 
         Parentised(ParentisedExpr<'a>),
         Block(BlockExpr<'a>),
@@ -707,7 +711,7 @@ pub mod ast {
                 Self::Minus(e) => write!(f, "({e})")?,
                 Self::Times(e) => write!(f, "({e})")?,
                 Self::Divide(e) => write!(f, "({e})")?,
-                Self::FunctionCall(e) => write!(f, "({e})")?,
+                Self::FunctionApplication(e) => write!(f, "({e})")?,
             }
 
             Ok(())
@@ -767,7 +771,7 @@ macro_rules! l_one {
             $(.chain(<$x>::expected_first()))+
         )? {
             $(
-            GenericToken { kind, .. } if $x::expects(Some(kind)) => {
+            GenericToken { kind, .. } if $x::expects(kind) => {
                 l_one!(use $ctx, $x $($exps)?).map($t)
             }
             )+
@@ -798,12 +802,14 @@ macro_rules! match_token {
     };
 }
 
+/// Extension trait for TokenStream
 trait Util<'a> {
     fn expected<T: KnownToken<'a>>(&mut self) -> Result<T, ParserError>;
     fn expecteds(
         &mut self,
         tys: impl Iterator<Item = TokenType> + Clone
     ) -> Result<GenericToken<'a>, ParserError>;
+
     fn peek_expected(&mut self, ty: TokenType) -> Result<&GenericToken<'a>, ParserError>;
     fn peek_expecteds(
         &mut self,
@@ -878,8 +884,8 @@ pub enum ParserError {
 }
 
 pub trait Parsable<'a>: Sized {
-    fn expects(e: Option<&TokenType>) -> bool {
-        Self::expected_first().any(|t| Some(&t) == e)
+    fn expects(e: &TokenType) -> bool {
+        Self::expected_first().any(|t| &t == e)
     }
 
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone;
@@ -1296,10 +1302,10 @@ impl<'a> Parsable<'a> for On<'a> {
 impl<'a> Parsable<'a> for AnyLiteral<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            StringLiteralToken,
-            DecimalLiteralToken,
-            TrueToken,
-            FalseToken
+            StringLiteral,
+            DecimalLiteral,
+            TrueLiteral,
+            FalseLiteral
         )
     }
 
@@ -1327,10 +1333,32 @@ impl<'a> Expr<'a> {
         )
     }
 
+    const ASSIGNMENT_PRECEDENCE: usize = 0;
+
+    const BOOLEAN_OR_PRECEDENCE: usize = 1;
+
+    const BOOLEAN_AND_PRECEDENCE: usize = 2;
+
+    const EQUALITY_PRECEDENCE: usize = 3;
+    const LOWER_PRECEDENCE: usize = 3;
+    const LOWER_EQUAL_PRECEDENCE: usize = 3;
+    const GREATER_PRECEDENCE: usize = 3;
+    const GREATER_EQUAL_PRECEDENCE: usize = 3;
+
+    const PLUS_PRECEDENCE: usize = 4;
+    const MINUS_PRECEDENCE: usize = 4;
+
+    const TIMES_PRECEDENCE: usize = 5;
+    const DIVIDE_PRECEDENCE: usize = 5;
+
+    const FUNCTION_APPLICATION_PRECEDENCE: usize = 6;
+
+    const BOTTOM_PRECEDENCE: usize = 7;
+
     fn expr_parse(
         ctx: &mut ParseContext<'a>, precedence: usize
     ) -> Result<Self, ParserError> {
-        if precedence >= 7 {
+        if precedence >= Self::BOTTOM_PRECEDENCE {
             return Self::bottom_parse(ctx);
         }
 
@@ -1363,43 +1391,56 @@ impl<'a> Expr<'a> {
             // matches, continue the left-associated operation
             // 'continue' the loop if a token is matched
             take_precedence!(
-                TT::Equal           => Self::Assignment   [0],
+                TT::Equal          
+                    => Self::Assignment   [Self::ASSIGNMENT_PRECEDENCE],
 
-                TT::DoubleVBar      => Self::BooleanOr    [1],
+                TT::DoubleVBar     
+                    => Self::BooleanOr    [Self::BOOLEAN_OR_PRECEDENCE],
 
-                TT::DoubleAnd       => Self::BooleanAnd   [2],
+                TT::DoubleAnd      
+                    => Self::BooleanAnd   [Self::BOOLEAN_AND_PRECEDENCE],
 
-                TT::DoubleEqual     => Self::Equality     [3],
-                TT::CaretOpen       => Self::Lower        [3],
-                TT::CaretOpenEqual  => Self::LowerEqual   [3],
-                TT::CaretClose      => Self::Greater      [3],
-                TT::CaretCloseEqual => Self::GreaterEqual [3],
+                TT::DoubleEqual    
+                    => Self::Equality     [Self::EQUALITY_PRECEDENCE],
+                TT::CaretOpen      
+                    => Self::Lower        [Self::LOWER_PRECEDENCE],
+                TT::CaretOpenEqual 
+                    => Self::LowerEqual   [Self::LOWER_EQUAL_PRECEDENCE],
+                TT::CaretClose     
+                    => Self::Greater      [Self::GREATER_PRECEDENCE],
+                TT::CaretCloseEqual
+                    => Self::GreaterEqual [Self::GREATER_EQUAL_PRECEDENCE],
 
-                TT::Plus            => Self::Plus         [4],
-                TT::Dash            => Self::Minus        [4],
+                TT::Plus           
+                    => Self::Plus         [Self::PLUS_PRECEDENCE],
+                TT::Dash           
+                    => Self::Minus        [Self::MINUS_PRECEDENCE],
 
-                TT::Star            => Self::Times        [5],
-                TT::FSlash          => Self::Divide       [5],
+                TT::Star           
+                    => Self::Times        [Self::TIMES_PRECEDENCE],
+                TT::FSlash         
+                    => Self::Divide       [Self::DIVIDE_PRECEDENCE],
             );
 
-            match ctx.tokens.peek()?.kind {
-                TokenType::ParenOpen if precedence == 6 => {
-                    left = Self::FunctionCall(FunctionCallExpr {
-                        id: ctx.new_id(),
-
-                        expr: Box::new(left),
-                        paren_open: ctx.tokens.expected()?,
-                        arguments: parse(ctx)?,
-                        paren_close: ctx.tokens.expected()?
-                    });
-                    continue;
-                }
-
-                _ => (),
+            // Function calls after this
+            if precedence != Self::FUNCTION_APPLICATION_PRECEDENCE {
+                break;
             }
 
-            // Only reachable if the peeked token does not match any
-            break;
+            // Not an expression -> no function application
+            if !Expr::expects(&ctx.tokens.peek()?.kind) {
+                break;
+            }
+
+            let mut arguments = vec![];
+            while Expr::expects(&ctx.tokens.peek()?.kind) {
+                arguments.push(Expr::expr_parse(ctx, precedence + 1)?);
+            }
+            left = Expr::FunctionApplication(FunctionApplicationExpr {
+                id: ctx.new_id(),
+                expr: Box::new(left),
+                arguments: arguments.into_boxed_slice(),
+            });
         }
         return Ok(left);
     }
@@ -1440,7 +1481,7 @@ impl<'a> Parsable<'a> for ParentisedExpr<'a> {
     }
 }
 
-impl<'a> Parsable<'a> for FunctionCallExpr<'a> {
+impl<'a> Parsable<'a> for FunctionApplicationExpr<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             Expr
@@ -1448,13 +1489,19 @@ impl<'a> Parsable<'a> for FunctionCallExpr<'a> {
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
+        let expr = Expr::expr_parse(ctx, Expr::FUNCTION_APPLICATION_PRECEDENCE)?;
+
+        let mut arguments = vec![];
+        while Expr::expects(&ctx.tokens.peek()?.kind) {
+            arguments.push(
+                Expr::expr_parse(ctx, Expr::FUNCTION_APPLICATION_PRECEDENCE)?
+            );
+        }
+
         Ok(Self {
             id: ctx.new_id(),
-
-            expr: Box::new(parse(ctx)?),
-            paren_open: parse(ctx)?,
-            arguments: parse(ctx)?,
-            paren_close: parse(ctx)?,
+            expr: Box::new(expr),
+            arguments: arguments.into_boxed_slice(),
         })
     }
 }
@@ -1558,16 +1605,10 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let if_ = ctx.tokens.expected::<IfToken>()?;
-
         let cond = Expr::parse(ctx)?;
-        let then: Expr;
-        if matches!(cond, Expr::Parentised(..)) {
-            then = Expr::parse(ctx)?;
-        }
-        else {
-            then = Expr::Block(BlockExpr::parse(ctx)?)
-                .into();
-        }
+
+        let then_kw = ctx.tokens.expected::<ThenToken>()?;
+        let then = Expr::parse(ctx)?;
 
         let mut else_ = None::<(ElseToken<'a>, Box<Expr<'a>>)>;
         if ctx.tokens.peek_eq(TokenType::Else)?.is_some() {
@@ -1577,7 +1618,7 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
                 expr = Expr::If(parse(ctx)?);
             }
             else {
-                expr = Expr::Block(parse(ctx)?);
+                expr = Expr::parse(ctx)?;
             }
             else_ = Some((tok, Box::new(expr.into())));
         }
@@ -1585,8 +1626,9 @@ impl<'a> Parsable<'a> for IfExpr<'a> {
         Ok(Self {
             id: ctx.new_id(),
 
-            if_,
+            if_kw: if_,
             cond: Box::new(cond),
+            then_kw,
             then: Box::new(then),
             else_,
         })
@@ -1603,21 +1645,16 @@ impl<'a> Parsable<'a> for WhileExpr<'a> {
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let while_ = ctx.tokens.expected()?;
 
-        let cond: Expr<'a> = Expr::parse(ctx)?;
-        let do_: Expr<'a>;
-        if matches!(cond, Expr::Parentised(..)) {
-            do_ = Expr::parse(ctx)?;
-        }
-        else {
-            do_ = Expr::Block(BlockExpr::parse(ctx)?)
-                .into();
-        }
+        let cond = Expr::parse(ctx)?;
+        let do_kw = ctx.tokens.expected()?;
+        let do_ = Expr::parse(ctx)?;
 
         Ok(Self {
             id: ctx.new_id(),
 
             while_,
             cond: Box::new(cond),
+            do_kw,
             do_: Box::new(do_),
         })
     }
@@ -1666,40 +1703,40 @@ mod tests {
 
     #[test]
     fn expr_if() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("<test>", "if x == 10 { 5+5; }");
+        let mut ctx = ParseContext::from_src("<test>", "if x == 10 then 5 + 5");
         let expr = Expr::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "if (x == 10) {(5 + 5);}");
+        assert_eq!(format!("{expr}"), "if (x == 10) then (5 + 5)");
 
         Ok(())
     }
 
     #[test]
     fn expr_if_else() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("<test>", "if (a + 5) == 10 { 5+5 } else { 0 }");
+        let mut ctx = ParseContext::from_src("<test>", "if a + 5 == 10 then 5 + 5 else 0");
         let expr = Expr::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "if (((a + 5)) == 10) {(5 + 5)} else {0}");
+        assert_eq!(format!("{expr}"), "if ((a + 5) == 10) then (5 + 5) else 0");
 
         Ok(())
     }
 
     #[test]
     fn expr_if_else_if() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("<test>", "if (a + 5) == 10 { 5+5 } else if true { 1 } else { 0 }");
+        let mut ctx = ParseContext::from_src("<test>", "if (a + 5) == 10 then 5 + 5 else if true then 1 else 0");
         let expr = Expr::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "if (((a + 5)) == 10) {(5 + 5)} else if true {1} else {0}");
+        assert_eq!(format!("{expr}"), "if (((a + 5)) == 10) then (5 + 5) else if true then 1 else 0");
 
         Ok(())
     }
 
     #[test]
     fn expr_while() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("<test>", "while true { test }");
+        let mut ctx = ParseContext::from_src("<test>", "while true do test");
         let expr = Expr::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "while true {test}");
+        assert_eq!(format!("{expr}"), "while true do test");
 
         Ok(())
     }
@@ -1725,11 +1762,11 @@ mod tests {
     }
 
     #[test]
-    fn expr_function_call() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("<test>", "(this_is_a_function + 5)(5, (10 + 10),)");
+    fn expr_function_application() -> Result<(), Box<dyn Error>> {
+        let mut ctx = ParseContext::from_src("<test>", "(this_is_a_function 5 (5 5 5) (10 + 10))");
         let expr = Expr::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "(((this_is_a_function + 5))(5,((10 + 10)),))");
+        assert_eq!(format!("{expr}"), "((this_is_a_function 5 ((5 5 5)) ((10 + 10))))");
 
         Ok(())
     }
