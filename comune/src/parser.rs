@@ -2,6 +2,7 @@
 pub mod ast {
     use std::marker::PhantomData;
     use std::fmt::{ Debug, Display };
+    use std::ops::ControlFlow;
     use std::sync::atomic::AtomicU64;
 
     use crate::lexer::*;
@@ -42,7 +43,7 @@ pub mod ast {
 
     /// Ast node but with no Id (only visit its children)
     pub trait Visitable<'a> {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V);
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()>;
     }
 
     /// Trait of all nodes in the AST
@@ -51,12 +52,12 @@ pub mod ast {
         fn id(&self) -> NodeId;
 
         /// Visit the node and its children
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()>;
     }
 
     impl<'a, N: Node<'a>> Visitable<'a> for N {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            <N as Node<'a>>::visit(self, v);
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            <N as Node<'a>>::visit(self, v)
         }
     }
 
@@ -64,123 +65,123 @@ pub mod ast {
         fn visit_file(
             &mut self, _node: &mut File<'a>,
             _order: NodeVisitOrder
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
 
         fn visit_infix_op<Left, Op: KnownToken<'a>, Right>(
             &mut self, _node: &mut InfixOp<'a, Left, Op, Right>,
             _order: NodeVisitOrder
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_function_application(
             &mut self, _node: &mut FunctionApplicationExpr<'a>,
             _order: NodeVisitOrder
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_parentised(
             &mut self,
             _node: &mut ParentisedExpr<'a>,
             _order: NodeVisitOrder
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_block(
             &mut self,
             _node: &mut BlockExpr<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_id(
             &mut self,
             _node: &mut IdenToken<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_if(
             &mut self,
             _node: &mut IfExpr<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_while(
             &mut self,
             _node: &mut WhileExpr<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_semied_expr(
             &mut self,
             _node: &mut SemiedExpr<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
 
         fn visit_decimal_literal(
             &mut self,
             _node: &mut DecimalLiteral<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_string_literal(
             &mut self,
             _node: &mut StringLiteral<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_false_literal(
             &mut self,
             _node: &mut FalseLiteral<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_true_literal(
             &mut self,
             _node: &mut TrueLiteral<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_iden_expr(
             &mut self,
             _node: &mut IdenExpr<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
 
         fn visit_let(
             &mut self,
             _node: &mut LetDeclaration<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_machine(
             &mut self,
             _node: &mut MachineDeclaration<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_state(
             &mut self,
             _node: &mut StateDeclaration<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_state_transition(
             &mut self,
             _node: &mut StateTransition<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_let_decl(
             &mut self,
             _node: &mut LetDeclaration<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_dyn(
             &mut self,
             _node: &mut Dyn<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_data(
             &mut self,
             _node: &mut Data<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_data_stmt(
             &mut self,
             _node: &mut DataStmt<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_on(
             &mut self,
             _node: &mut On<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
         fn visit_parameter(
             &mut self,
             _node: &mut Parameter<'a>,
             _order: NodeVisitOrder,
-        ) { }
+        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
     }
 
     /// Generic Container of statments supporting both surrounding every
@@ -207,20 +208,22 @@ pub mod ast {
         where End: KnownToken<'a>,
               T: Visitable<'a>,
     {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
             match self {
                 Self::UseSemi { semi: _, stmts } => {
                     for t in stmts.iter_mut() {
-                        t.visitable(v);
+                        t.visitable(v)?;
                     }
                 },
                 Self::UseBrackets { open: _, stmts, close: _ } => {
                     for t in stmts.iter_mut() {
-                        t.visitable(v);
+                        t.visitable(v)?;
                     }
                 },
                 Self::Never { .. } => unreachable!(),
             }
+
+            ControlFlow::Continue(())
         }
     }
 
@@ -266,10 +269,11 @@ pub mod ast {
               Sep: KnownToken<'a> + Display,
               T: Visitable<'a>
     {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
             for (s, _) in self.stmts.iter_mut() {
-                s.visitable(v);
+                s.visitable(v)?;
             }
+            ControlFlow::Continue(())
         }
     }
 
@@ -311,12 +315,13 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_let(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_let(self, Prefix)?;
 
-            self.expr.visitable(v);
+            self.expr.visitable(v)?;
 
-            v.visit_let(self, Suffix);
+            v.visit_let(self, Suffix)?;
+            ControlFlow::Continue(())
         }
     }
 
@@ -365,12 +370,14 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_machine(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_machine(self, Prefix)?;
 
-            self.stmts.visitable(v);
+            self.stmts.visitable(v)?;
 
-            v.visit_machine(self, Suffix);
+            v.visit_machine(self, Suffix)?;
+
+            ControlFlow::Continue(())
         }
     }
 
@@ -392,7 +399,7 @@ pub mod ast {
     }
 
     impl<'a> Visitable<'a> for MachineStmt<'a> {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
             match self {
                 Self::Declaration(e) => e.visitable(v),
                 Self::State(e) => e.visitable(v),
@@ -427,12 +434,12 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_state(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_state(self, Prefix)?;
 
-            self.stmts.visitable(v);
+            self.stmts.visitable(v)?;
 
-            v.visit_state(self, Suffix);
+            v.visit_state(self, Suffix)
         }
     }
 
@@ -460,7 +467,7 @@ pub mod ast {
     }
 
     impl<'a> Visitable<'a> for StateStmt<'a> {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
             match self {
                 Self::Declaration(e) => e.visitable(v),
                 Self::Transition(e) => e.visit(v),
@@ -506,10 +513,10 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_state_transition(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_state_transition(self, Prefix)?;
 
-            v.visit_state_transition(self, Suffix);
+            v.visit_state_transition(self, Suffix)
         }
     }
 
@@ -532,7 +539,7 @@ pub mod ast {
     }
 
     impl<'a> Visitable<'a> for Declaration<'a> {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
             match self {
                 Self::Machine(e) => e.visit(v),
                 Self::Let(e) => e.visit(v),
@@ -569,13 +576,13 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_dyn(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_dyn(self, Prefix)?;
 
-            self.src_expr.visitable(v);
-            self.stmt.visitable(v);
+            self.src_expr.visitable(v)?;
+            self.stmt.visitable(v)?;
 
-            v.visit_dyn(self, Suffix);
+            v.visit_dyn(self, Suffix)
         }
     }
 
@@ -610,12 +617,12 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_data(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_data(self, Prefix)?;
 
-            self.stmts.visitable(v);
+            self.stmts.visitable(v)?;
 
-            v.visit_data(self, Suffix);
+            v.visit_data(self, Suffix)
         }
     }
 
@@ -647,10 +654,10 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_data_stmt(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_data_stmt(self, Prefix)?;
 
-            v.visit_data_stmt(self, Suffix);
+            v.visit_data_stmt(self, Suffix)
         }
     }
 
@@ -685,12 +692,12 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_on(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_on(self, Prefix)?;
 
-            self.params.visitable(v);
+            self.params.visitable(v)?;
 
-            v.visit_on(self, Suffix);
+            v.visit_on(self, Suffix)
         }
     }
 
@@ -719,10 +726,10 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_parameter(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_parameter(self, Prefix)?;
 
-            v.visit_parameter(self, Suffix);
+            v.visit_parameter(self, Suffix)
         }
     }
 
@@ -770,9 +777,9 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_infix_op(self, Prefix);
-            v.visit_infix_op(self, Suffix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_infix_op(self, Prefix)?;
+            v.visit_infix_op(self, Suffix)
         }
     }
 
@@ -805,12 +812,12 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_parentised(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_parentised(self, Prefix)?;
 
-            self.expr.visitable(v);
+            self.expr.visitable(v)?;
 
-            v.visit_parentised(self, Suffix);
+            v.visit_parentised(self, Suffix)
         }
     }
 
@@ -835,10 +842,10 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_semied_expr(self, Prefix);
-            self.expr.visitable(v);
-            v.visit_semied_expr(self, Suffix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_semied_expr(self, Prefix)?;
+            self.expr.visitable(v)?;
+            v.visit_semied_expr(self, Suffix)
         }
     }
 
@@ -858,7 +865,7 @@ pub mod ast {
     }
 
     impl<'a> Visitable<'a> for BlockStatement<'a> {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
             match self {
                 Self::Decl(e) => e.visitable(v),
                 Self::Expr(e) => e.visitable(v),
@@ -898,17 +905,17 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_block(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_block(self, Prefix)?;
 
             for s in self.stmts.iter_mut() {
-                s.visitable(v);
+                s.visitable(v)?;
             }
             if let Some(le) = &mut self.last_expr {
-                le.visitable(v);
+                le.visitable(v)?;
             }
 
-            v.visit_block(self, Suffix);
+            v.visit_block(self, Suffix)
         }
     }
 
@@ -944,17 +951,17 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_if(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_if(self, Prefix)?;
 
-            self.cond.visitable(v);
-            self.then.visitable(v);
+            self.cond.visitable(v)?;
+            self.then.visitable(v)?;
 
             if let Some((_, e)) = &mut self.else_ {
-                e.visitable(v);
+                e.visitable(v)?;
             }
 
-            v.visit_if(self, Suffix);
+            v.visit_if(self, Suffix)
         }
     }
 
@@ -988,13 +995,13 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_while(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_while(self, Prefix)?;
 
             self.cond.visitable(v);
             self.do_.visitable(v);
 
-            v.visit_while(self, Suffix);
+            v.visit_while(self, Suffix)
         }
     }
 
@@ -1020,10 +1027,10 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_decimal_literal(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_decimal_literal(self, Prefix)?;
 
-            v.visit_decimal_literal(self, Suffix);
+            v.visit_decimal_literal(self, Suffix)
         }
     }
 
@@ -1044,9 +1051,9 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_string_literal(self, Prefix);
-            v.visit_string_literal(self, Suffix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_string_literal(self, Prefix)?;
+            v.visit_string_literal(self, Suffix)
         }
     }
 
@@ -1067,9 +1074,9 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_true_literal(self, Prefix);
-            v.visit_true_literal(self, Suffix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_true_literal(self, Prefix)?;
+            v.visit_true_literal(self, Suffix)
         }
     }
 
@@ -1090,9 +1097,9 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_false_literal(self, Prefix);
-            v.visit_false_literal(self, Suffix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_false_literal(self, Prefix)?;
+            v.visit_false_literal(self, Suffix)
         }
     }
 
@@ -1112,7 +1119,7 @@ pub mod ast {
     }
 
     impl<'a> Visitable<'a> for AnyLiteral<'a> {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
             match self {
                 Self::Decimal(e) => e.visitable(v),
                 Self::String(e) => e.visitable(v),
@@ -1146,15 +1153,15 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_function_application(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_function_application(self, Prefix)?;
 
-            self.expr.visitable(v);
+            self.expr.visitable(v)?;
             for e in self.arguments.iter_mut() {
-                e.visitable(v);
+                e.visitable(v)?;
             }
 
-            v.visit_function_application(self, Suffix);
+            v.visit_function_application(self, Suffix)
         }
     }
 
@@ -1182,9 +1189,9 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_iden_expr(self, Prefix);
-            v.visit_iden_expr(self, Suffix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_iden_expr(self, Prefix)?;
+            v.visit_iden_expr(self, Suffix)
         }
     }
 
@@ -1227,7 +1234,7 @@ pub mod ast {
     }
 
     impl<'a> Visitable<'a> for Expr<'a> {
-        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) {
+        fn visitable<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
             match self {
                 Expr::Assignment(e) => e.visitable(v),
                 Expr::BooleanOr(e) => e.visitable(v),
@@ -1294,14 +1301,14 @@ pub mod ast {
             self.id
         }
 
-        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) {
-            v.visit_file(self, Prefix);
+        fn visit<V: AstVisitor<'a>>(&mut self, v: &mut V) -> ControlFlow<()> {
+            v.visit_file(self, Prefix)?;
 
             for d in self.declarations.iter_mut() {
-                d.visitable(v);
+                d.visitable(v)?;
             }
 
-            v.visit_file(self, Suffix);
+            v.visit_file(self, Suffix)
         }
     }
 
