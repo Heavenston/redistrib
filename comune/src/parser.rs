@@ -31,152 +31,58 @@ pub mod ast {
         }
     }
 
-    /// Wether the visit is done before or after children
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    pub enum VisitOrder {
-        /// Before any child is visited
-        Prefix,
-        /// After all children are visited
-        Suffix,
-    }
-    use VisitOrder::*;
-
     /// Ast node but with no Id (only visit its children)
-    pub trait Visitable<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()>;
+    pub trait NodeContainer<'a> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V);
     }
 
     /// Trait of all nodes in the AST
-    pub trait Node {
+    pub trait Node<'a> {
         /// A unique id for the node
         fn id(&self) -> NodeId;
+
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V);
     }
 
-    pub trait AstVisitor<'a> {
-        fn visit_file(
-            &mut self, _node: &'a File<'a>,
-            _order: VisitOrder
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-
-        fn visit_infix_op<Left, Op: KnownToken<'a>, Right>(
-            &mut self, _node: &'a InfixOp<'a, Left, Op, Right>,
-            _order: VisitOrder
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_function_application(
-            &mut self, _node: &'a FunctionApplicationExpr<'a>,
-            _order: VisitOrder
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_parentised(
-            &mut self,
-            _node: &'a ParentisedExpr<'a>,
-            _order: VisitOrder
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_block(
-            &mut self,
-            _node: &'a BlockExpr<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_id(
-            &mut self,
-            _node: &'a IdenToken<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_if(
-            &mut self,
-            _node: &'a IfExpr<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_while(
-            &mut self,
-            _node: &'a WhileExpr<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_semied_expr(
-            &mut self,
-            _node: &'a SemiedExpr<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-
-        fn visit_decimal_literal(
-            &mut self,
-            _node: &'a DecimalLiteral<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_string_literal(
-            &mut self,
-            _node: &'a StringLiteral<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_false_literal(
-            &mut self,
-            _node: &'a FalseLiteral<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_true_literal(
-            &mut self,
-            _node: &'a TrueLiteral<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_iden_expr(
-            &mut self,
-            _node: &'a IdenExpr<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-
-        fn visit_let(
-            &mut self,
-            _node: &'a LetDeclaration<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_machine(
-            &mut self,
-            _node: &'a MachineDeclaration<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_state(
-            &mut self,
-            _node: &'a StateDeclaration<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_state_transition(
-            &mut self,
-            _node: &'a StateTransition<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_let_decl(
-            &mut self,
-            _node: &'a LetDeclaration<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_dyn(
-            &mut self,
-            _node: &'a Dyn<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_data(
-            &mut self,
-            _node: &'a Data<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_data_stmt(
-            &mut self,
-            _node: &'a DataStmt<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_on(
-            &mut self,
-            _node: &'a On<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
-        fn visit_parameter(
-            &mut self,
-            _node: &'a Parameter<'a>,
-            _order: VisitOrder,
-        ) -> ControlFlow<()> { ControlFlow::Continue(()) }
+    impl<'a, T> NodeContainer<'a> for T
+        where T: Node<'a> + 'a,
+              AnyNodeRef<'a>: From<&'a Self>,
+    {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            v.visit_n(self)
+        }
     }
 
-    #[derive(TryAs)]
+    pub trait AstVisitor<'a>: Sized {
+        fn visit_any(
+            &mut self, node_ref: AnyNodeRef<'a>
+        ) {
+            node_ref.any_walk(self)
+        }
+
+        fn visit_n<N>(
+            &mut self, node: &'a N
+        )
+            where AnyNodeRef<'a>: From<&'a N>
+        {
+            self.visit_any(node.into())
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, TryAs)]
     pub enum AnyNodeRef<'a> {
+        Assignment(&'a InfixOp<'a, Expr<'a>, EqualToken<'a>, Expr<'a>>),
+        BooleanOr(&'a InfixOp<'a, Expr<'a>, DoubleVBarToken<'a>, Expr<'a>>),
+        BooleanAnd(&'a InfixOp<'a, Expr<'a>, DoubleAndToken<'a>, Expr<'a>>),
+        Equality(&'a InfixOp<'a, Expr<'a>, DoubleEqualToken<'a>, Expr<'a>>),
+        Greater(&'a InfixOp<'a, Expr<'a>, CaretCloseToken<'a>, Expr<'a>>),
+        GreaterEqual(&'a InfixOp<'a, Expr<'a>, CaretCloseEqualToken<'a>, Expr<'a>>),
+        Lower(&'a InfixOp<'a, Expr<'a>, CaretOpenToken<'a>, Expr<'a>>),
+        LowerEqual(&'a InfixOp<'a, Expr<'a>, CaretOpenEqualToken<'a>, Expr<'a>>),
+        Plus(&'a InfixOp<'a, Expr<'a>, PlusToken<'a>, Expr<'a>>),
+        Minus(&'a InfixOp<'a, Expr<'a>, DashToken<'a>, Expr<'a>>),
+        Times(&'a InfixOp<'a, Expr<'a>, StarToken<'a>, Expr<'a>>),
+        Divide(&'a InfixOp<'a, Expr<'a>, FSlashToken<'a>, Expr<'a>>),
         LetDeclaration(&'a LetDeclaration<'a>),
         MachineDeclaration(&'a MachineDeclaration<'a>),
         StateDeclaration(&'a StateDeclaration<'a>),
@@ -200,6 +106,84 @@ pub mod ast {
         File(&'a File<'a>),
     }
 
+    impl<'a> AnyNodeRef<'a> {
+        pub fn any_walk<V: AstVisitor<'a>>(&self, v: &mut V) {
+            match self {
+                Self::Assignment(d) => d.walk(v),
+                Self::BooleanOr(d) => d.walk(v),
+                Self::BooleanAnd(d) => d.walk(v),
+                Self::Equality(d) => d.walk(v),
+                Self::Greater(d) => d.walk(v),
+                Self::GreaterEqual(d) => d.walk(v),
+                Self::Lower(d) => d.walk(v),
+                Self::LowerEqual(d) => d.walk(v),
+                Self::Plus(d) => d.walk(v),
+                Self::Minus(d) => d.walk(v),
+                Self::Times(d) => d.walk(v),
+                Self::Divide(d) => d.walk(v),
+                Self::LetDeclaration(d) => d.walk(v),
+                Self::MachineDeclaration(d) => d.walk(v),
+                Self::StateDeclaration(d) => d.walk(v),
+                Self::StateTransition(d) => d.walk(v),
+                Self::Dyn(d) => d.walk(v),
+                Self::Data(d) => d.walk(v),
+                Self::DataStmt(d) => d.walk(v),
+                Self::On(d) => d.walk(v),
+                Self::Parameter(d) => d.walk(v),
+                Self::ParentisedExpr(d) => d.walk(v),
+                Self::SemiedExpr(d) => d.walk(v),
+                Self::BlockExpr(d) => d.walk(v),
+                Self::IfExpr(d) => d.walk(v),
+                Self::WhileExpr(d) => d.walk(v),
+                Self::DecimalLiteral(d) => d.walk(v),
+                Self::StringLiteral(d) => d.walk(v),
+                Self::TrueLiteral(d) => d.walk(v),
+                Self::FalseLiteral(d) => d.walk(v),
+                Self::FunctionApplicationExpr(d) => d.walk(v),
+                Self::IdenExpr(d) => d.walk(v),
+                Self::File(d) => d.walk(v),
+            }
+        }
+        
+        pub fn any_id(&self) -> NodeId {
+            match self {
+                Self::Assignment(d) => d.id(),
+                Self::BooleanOr(d) => d.id(),
+                Self::BooleanAnd(d) => d.id(),
+                Self::Equality(d) => d.id(),
+                Self::Greater(d) => d.id(),
+                Self::GreaterEqual(d) => d.id(),
+                Self::Lower(d) => d.id(),
+                Self::LowerEqual(d) => d.id(),
+                Self::Plus(d) => d.id(),
+                Self::Minus(d) => d.id(),
+                Self::Times(d) => d.id(),
+                Self::Divide(d) => d.id(),
+                Self::LetDeclaration(d) => d.id(),
+                Self::MachineDeclaration(d) => d.id(),
+                Self::StateDeclaration(d) => d.id(),
+                Self::StateTransition(d) => d.id(),
+                Self::Dyn(d) => d.id(),
+                Self::Data(d) => d.id(),
+                Self::DataStmt(d) => d.id(),
+                Self::On(d) => d.id(),
+                Self::Parameter(d) => d.id(),
+                Self::ParentisedExpr(d) => d.id(),
+                Self::SemiedExpr(d) => d.id(),
+                Self::BlockExpr(d) => d.id(),
+                Self::IfExpr(d) => d.id(),
+                Self::WhileExpr(d) => d.id(),
+                Self::DecimalLiteral(d) => d.id(),
+                Self::StringLiteral(d) => d.id(),
+                Self::TrueLiteral(d) => d.id(),
+                Self::FalseLiteral(d) => d.id(),
+                Self::FunctionApplicationExpr(d) => d.id(),
+                Self::IdenExpr(d) => d.id(),
+                Self::File(d) => d.id(),
+            }
+        }
+    }
+
     /// Generic Container of statments supporting both surrounding every
     /// statements or just a semi, making every following statements as being
     /// part of the container, until the End token is reached.
@@ -220,26 +204,24 @@ pub mod ast {
         },
     }
 
-    impl<'a, End, T> Visitable<'a> for StmtContainer<'a, End, T>
+    impl<'a, End, T> NodeContainer<'a> for StmtContainer<'a, End, T>
         where End: KnownToken<'a>,
-              T: Visitable<'a>,
+              T: NodeContainer<'a>,
     {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
                 Self::UseSemi { semi: _, stmts } => {
                     for t in stmts.iter() {
-                        t.visit(v)?;
+                        t.container_visit(v);
                     }
                 },
                 Self::UseBrackets { open: _, stmts, close: _ } => {
                     for t in stmts.iter() {
-                        t.visit(v)?;
+                        t.container_visit(v);
                     }
                 },
                 Self::Never { .. } => unreachable!(),
             }
-
-            ControlFlow::Continue(())
         }
     }
 
@@ -280,16 +262,15 @@ pub mod ast {
         pub last: Option<(Box<T>, Option<Sep>)>,
     }
 
-    impl<'a, End, Sep, T> Visitable<'a> for SeparatedList<'a, End, Sep, T>
+    impl<'a, End, Sep, T> NodeContainer<'a> for SeparatedList<'a, End, Sep, T>
         where End: KnownToken<'a> + Display,
               Sep: KnownToken<'a> + Display,
-              T: Visitable<'a>
+              T: NodeContainer<'a>
     {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             for (s, _) in self.stmts.iter() {
-                s.visit(v)?;
+                s.container_visit(v);
             }
-            ControlFlow::Continue(())
         }
     }
 
@@ -326,19 +307,13 @@ pub mod ast {
         pub semi: SemiColonToken<'a>,
     }
 
-    impl<'a> Node for LetDeclaration<'a> {
+    impl<'a> Node<'a> for LetDeclaration<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for LetDeclaration<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_let(self, Prefix)?;
 
-            self.expr.visit(v)?;
-
-            v.visit_let(self, Suffix)?;
-            ControlFlow::Continue(())
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.expr.container_visit(v)
         }
     }
 
@@ -382,20 +357,13 @@ pub mod ast {
         pub stmts: StmtContainer<'a, MachineToken<'a>, MachineStmt<'a>>,
     }
 
-    impl<'a> Node for MachineDeclaration<'a> {
+    impl<'a> Node<'a> for MachineDeclaration<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for MachineDeclaration<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_machine(self, Prefix)?;
 
-            self.stmts.visit(v)?;
-
-            v.visit_machine(self, Suffix)?;
-
-            ControlFlow::Continue(())
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.stmts.container_visit(v)
         }
     }
 
@@ -416,11 +384,11 @@ pub mod ast {
         State(StateDeclaration<'a>),
     }
 
-    impl<'a> Visitable<'a> for MachineStmt<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
+    impl<'a> NodeContainer<'a> for MachineStmt<'a> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::Declaration(e) => e.visit(v),
-                Self::State(e) => e.visit(v),
+                Self::Declaration(e) => e.container_visit(v),
+                Self::State(e) => e.container_visit(v),
             }
         }
     }
@@ -447,18 +415,13 @@ pub mod ast {
         pub stmts: StmtContainer<'a, StateToken<'a>, StateStmt<'a>>,
     }
 
-    impl<'a> Node for StateDeclaration<'a> {
+    impl<'a> Node<'a> for StateDeclaration<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for StateDeclaration<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_state(self, Prefix)?;
 
-            self.stmts.visit(v)?;
-
-            v.visit_state(self, Suffix)
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.stmts.container_visit(v)
         }
     }
 
@@ -485,14 +448,14 @@ pub mod ast {
         On(On<'a>),
     }
 
-    impl<'a> Visitable<'a> for StateStmt<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
+    impl<'a> NodeContainer<'a> for StateStmt<'a> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::Declaration(e) => e.visit(v),
-                Self::Transition(e) => e.visit(v),
-                Self::Dyn(e) => e.visit(v),
-                Self::Data(e) => e.visit(v),
-                Self::On(e) => e.visit(v),
+                Self::Declaration(e) => e.container_visit(v),
+                Self::Transition(e) => e.container_visit(v),
+                Self::Dyn(e) => e.container_visit(v),
+                Self::Data(e) => e.container_visit(v),
+                Self::On(e) => e.container_visit(v),
             }
         }
     }
@@ -527,17 +490,12 @@ pub mod ast {
         pub semi: SemiColonToken<'a>,
     }
 
-    impl<'a> Node for StateTransition<'a> {
+    impl<'a> Node<'a> for StateTransition<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for StateTransition<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_state_transition(self, Prefix)?;
 
-            v.visit_state_transition(self, Suffix)
-        }
+        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
     impl<'a> Display for StateTransition<'a> {
@@ -558,11 +516,11 @@ pub mod ast {
         Let(LetDeclaration<'a>),
     }
 
-    impl<'a> Visitable<'a> for Declaration<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
+    impl<'a> NodeContainer<'a> for Declaration<'a> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::Machine(e) => e.visit(v),
-                Self::Let(e) => e.visit(v),
+                Self::Machine(e) => e.container_visit(v),
+                Self::Let(e) => e.container_visit(v),
             }
         }
     }
@@ -591,19 +549,14 @@ pub mod ast {
         pub semi: Option<SemiColonToken<'a>>,
     }
 
-    impl<'a> Node for Dyn<'a> {
+    impl<'a> Node<'a> for Dyn<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for Dyn<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_dyn(self, Prefix)?;
 
-            self.src_expr.visit(v)?;
-            self.stmt.visit(v)?;
-
-            v.visit_dyn(self, Suffix)
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.src_expr.container_visit(v);
+            self.stmt.container_visit(v);
         }
     }
 
@@ -633,18 +586,13 @@ pub mod ast {
         pub curly_close: CurlyCloseToken<'a>,
     }
 
-    impl<'a> Node for Data<'a> {
+    impl<'a> Node<'a> for Data<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for Data<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_data(self, Prefix)?;
 
-            self.stmts.visit(v)?;
-
-            v.visit_data(self, Suffix)
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.stmts.container_visit(v);
         }
     }
 
@@ -671,17 +619,12 @@ pub mod ast {
         pub ty: Type<'a>,
     }
 
-    impl<'a> Node for DataStmt<'a> {
+    impl<'a> Node<'a> for DataStmt<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for DataStmt<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_data_stmt(self, Prefix)?;
 
-            v.visit_data_stmt(self, Suffix)
-        }
+        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
     impl<'a> Display for DataStmt<'a> {
@@ -710,18 +653,14 @@ pub mod ast {
         pub body: BlockExpr<'a>,
     }
 
-    impl<'a> Node for On<'a> {
+    impl<'a> Node<'a> for On<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for On<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_on(self, Prefix)?;
 
-            self.params.visit(v)?;
-
-            v.visit_on(self, Suffix)
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.params.container_visit(v);
+            self.body.container_visit(v);
         }
     }
 
@@ -745,17 +684,12 @@ pub mod ast {
         pub ty: Type<'a>,
     }
 
-    impl<'a> Node for Parameter<'a> {
+    impl<'a> Node<'a> for Parameter<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for Parameter<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_parameter(self, Prefix)?;
 
-            v.visit_parameter(self, Suffix)
-        }
+        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
     impl<'a> Display for Parameter<'a> {
@@ -795,19 +729,19 @@ pub mod ast {
         pub p: PhantomData<*const &'a ()>,
     }
 
-    impl<'a, Left, Op, Right> Node for InfixOp<'a, Left, Op, Right>
-        where Op: KnownToken<'a>
+    impl<'a, Left, Op, Right> Node<'a> for InfixOp<'a, Left, Op, Right>
+        where Left: 'a + NodeContainer<'a>,
+              Op: 'a + KnownToken<'a>,
+              Right: 'a + NodeContainer<'a>,
+              AnyNodeRef<'a>: From<&'a Self>,
     {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a, Left, Op, Right> Visitable<'a> for InfixOp<'a, Left, Op, Right>
-        where Op: KnownToken<'a>
-    {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_infix_op(self, Prefix)?;
-            v.visit_infix_op(self, Suffix)
+
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.left.container_visit(v);
+            self.right.container_visit(v);
         }
     }
 
@@ -835,18 +769,13 @@ pub mod ast {
         pub close: ParenCloseToken<'a>,
     }
 
-    impl<'a> Node for ParentisedExpr<'a> {
+    impl<'a> Node<'a> for ParentisedExpr<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for ParentisedExpr<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_parentised(self, Prefix)?;
 
-            self.expr.visit(v)?;
-
-            v.visit_parentised(self, Suffix)
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.expr.container_visit(v);
         }
     }
 
@@ -866,16 +795,13 @@ pub mod ast {
         pub semi: SemiColonToken<'a>,
     }
 
-    impl<'a> Node for SemiedExpr<'a> {
+    impl<'a> Node<'a> for SemiedExpr<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for SemiedExpr<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_semied_expr(self, Prefix)?;
-            self.expr.visit(v)?;
-            v.visit_semied_expr(self, Suffix)
+
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.expr.container_visit(v);
         }
     }
 
@@ -894,11 +820,11 @@ pub mod ast {
         Expr(SemiedExpr<'a>),
     }
 
-    impl<'a> Visitable<'a> for BlockStatement<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
+    impl<'a> NodeContainer<'a> for BlockStatement<'a> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::Decl(e) => e.visit(v),
-                Self::Expr(e) => e.visit(v),
+                Self::Decl(e) => e.container_visit(v),
+                Self::Expr(e) => e.container_visit(v),
             }
         }
     }
@@ -930,23 +856,18 @@ pub mod ast {
         pub close: CurlyCloseToken<'a>,
     }
 
-    impl<'a> Node for BlockExpr<'a> {
+    impl<'a> Node<'a> for BlockExpr<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for BlockExpr<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_block(self, Prefix)?;
 
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             for s in self.stmts.iter() {
-                s.visit(v)?;
+                s.container_visit(v);
             }
             if let Some(le) = &self.last_expr {
-                le.visit(v)?;
+                le.container_visit(v);
             }
-
-            v.visit_block(self, Suffix)
         }
     }
 
@@ -977,23 +898,18 @@ pub mod ast {
         pub else_: Option<(ElseToken<'a>, Box<Expr<'a>>)>,
     }
 
-    impl<'a> Node for IfExpr<'a> {
+    impl<'a> Node<'a> for IfExpr<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for IfExpr<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_if(self, Prefix)?;
 
-            self.cond.visit(v)?;
-            self.then.visit(v)?;
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.cond.container_visit(v);
+            self.then.container_visit(v);
 
             if let Some((_, e)) = &self.else_ {
-                e.visit(v)?;
+                e.container_visit(v);
             }
-
-            v.visit_if(self, Suffix)
         }
     }
 
@@ -1022,19 +938,14 @@ pub mod ast {
         pub do_: Box<Expr<'a>>,
     }
 
-    impl<'a> Node for WhileExpr<'a> {
+    impl<'a> Node<'a> for WhileExpr<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for WhileExpr<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_while(self, Prefix)?;
 
-            self.cond.visit(v);
-            self.do_.visit(v);
-
-            v.visit_while(self, Suffix)
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.cond.container_visit(v);
+            self.do_.container_visit(v);
         }
     }
 
@@ -1055,17 +966,12 @@ pub mod ast {
         pub tok: DecimalLiteralToken<'a>,
     }
 
-    impl<'a> Node for DecimalLiteral<'a> {
+    impl<'a> Node<'a> for DecimalLiteral<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for DecimalLiteral<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_decimal_literal(self, Prefix)?;
 
-            v.visit_decimal_literal(self, Suffix)
-        }
+        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
     impl<'a> Display for DecimalLiteral<'a> {
@@ -1080,16 +986,12 @@ pub mod ast {
         pub tok: StringLiteralToken<'a>,
     }
 
-    impl<'a> Node for StringLiteral<'a> {
+    impl<'a> Node<'a> for StringLiteral<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for StringLiteral<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_string_literal(self, Prefix)?;
-            v.visit_string_literal(self, Suffix)
-        }
+
+        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
     impl<'a> Display for StringLiteral<'a> {
@@ -1104,16 +1006,12 @@ pub mod ast {
         pub tok: TrueToken<'a>,
     }
 
-    impl<'a> Node for TrueLiteral<'a> {
+    impl<'a> Node<'a> for TrueLiteral<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for TrueLiteral<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_true_literal(self, Prefix)?;
-            v.visit_true_literal(self, Suffix)
-        }
+
+        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
     impl<'a> Display for TrueLiteral<'a> {
@@ -1128,16 +1026,12 @@ pub mod ast {
         pub tok: FalseToken<'a>,
     }
 
-    impl<'a> Node for FalseLiteral<'a> {
+    impl<'a> Node<'a> for FalseLiteral<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for FalseLiteral<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_false_literal(self, Prefix)?;
-            v.visit_false_literal(self, Suffix)
-        }
+
+        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
     impl<'a> Display for FalseLiteral<'a> {
@@ -1155,13 +1049,13 @@ pub mod ast {
         False(FalseLiteral<'a>),
     }
 
-    impl<'a> Visitable<'a> for AnyLiteral<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
+    impl<'a> NodeContainer<'a> for AnyLiteral<'a> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::Decimal(e) => e.visit(v),
-                Self::String(e) => e.visit(v),
-                Self::True(e) => e.visit(v),
-                Self::False(e) => e.visit(v),
+                Self::Decimal(e) => e.container_visit(v),
+                Self::String(e) => e.container_visit(v),
+                Self::True(e) => e.container_visit(v),
+                Self::False(e) => e.container_visit(v),
             }
         }
     }
@@ -1185,21 +1079,16 @@ pub mod ast {
         pub arguments: Box<[Expr<'a>]>,
     }
 
-    impl<'a> Node for FunctionApplicationExpr<'a> {
+    impl<'a> Node<'a> for FunctionApplicationExpr<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for FunctionApplicationExpr<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_function_application(self, Prefix)?;
 
-            self.expr.visit(v)?;
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.expr.container_visit(v);
             for e in self.arguments.iter() {
-                e.visit(v)?;
+                e.container_visit(v);
             }
-
-            v.visit_function_application(self, Suffix)
         }
     }
 
@@ -1222,16 +1111,12 @@ pub mod ast {
         pub tok: IdenToken<'a>,
     }
 
-    impl<'a> Node for IdenExpr<'a> {
+    impl<'a> Node<'a> for IdenExpr<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for IdenExpr<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_iden_expr(self, Prefix)?;
-            v.visit_iden_expr(self, Suffix)
-        }
+
+        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
     impl<'a> Display for IdenExpr<'a> {
@@ -1272,28 +1157,28 @@ pub mod ast {
         Literal(AnyLiteral<'a>),
     }
 
-    impl<'a> Visitable<'a> for Expr<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
+    impl<'a> NodeContainer<'a> for Expr<'a> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Expr::Assignment(e) => e.visit(v),
-                Expr::BooleanOr(e) => e.visit(v),
-                Expr::BooleanAnd(e) => e.visit(v),
-                Expr::Equality(e) => e.visit(v),
-                Expr::Greater(e) => e.visit(v),
-                Expr::GreaterEqual(e) => e.visit(v),
-                Expr::Lower(e) => e.visit(v),
-                Expr::LowerEqual(e) => e.visit(v),
-                Expr::Plus(e) => e.visit(v),
-                Expr::Minus(e) => e.visit(v),
-                Expr::Times(e) => e.visit(v),
-                Expr::Divide(e) => e.visit(v),
-                Expr::FunctionApplication(e) => e.visit(v),
-                Expr::Parentised(e) => e.visit(v),
-                Expr::Block(e) => e.visit(v),
-                Expr::Id(e) => e.visit(v),
-                Expr::If(e) => e.visit(v),
-                Expr::While(e) => e.visit(v),
-                Expr::Literal(e) => e.visit(v),
+                Expr::Assignment(e) => e.container_visit(v),
+                Expr::BooleanOr(e) => e.container_visit(v),
+                Expr::BooleanAnd(e) => e.container_visit(v),
+                Expr::Equality(e) => e.container_visit(v),
+                Expr::Greater(e) => e.container_visit(v),
+                Expr::GreaterEqual(e) => e.container_visit(v),
+                Expr::Lower(e) => e.container_visit(v),
+                Expr::LowerEqual(e) => e.container_visit(v),
+                Expr::Plus(e) => e.container_visit(v),
+                Expr::Minus(e) => e.container_visit(v),
+                Expr::Times(e) => e.container_visit(v),
+                Expr::Divide(e) => e.container_visit(v),
+                Expr::FunctionApplication(e) => e.container_visit(v),
+                Expr::Parentised(e) => e.container_visit(v),
+                Expr::Block(e) => e.container_visit(v),
+                Expr::Id(e) => e.container_visit(v),
+                Expr::If(e) => e.container_visit(v),
+                Expr::While(e) => e.container_visit(v),
+                Expr::Literal(e) => e.container_visit(v),
             }
         }
     }
@@ -1335,20 +1220,15 @@ pub mod ast {
         pub eof: EOFToken<'a>,
     }
 
-    impl<'a> Node for File<'a> {
+    impl<'a> Node<'a> for File<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
-    }
-    impl<'a> Visitable<'a> for File<'a> {
-        fn visit<V: AstVisitor<'a>>(&'a self, v: &mut V) -> ControlFlow<()> {
-            v.visit_file(self, Prefix)?;
 
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             for d in self.declarations.iter() {
-                d.visit(v)?;
+                d.container_visit(v);
             }
-
-            v.visit_file(self, Suffix)
         }
     }
 
