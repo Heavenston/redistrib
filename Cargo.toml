@@ -13,4 +13,5 @@ members = [
   "stridul",
   "cobweb",
   "comune",
+  "comune_macros_internals",
 ]

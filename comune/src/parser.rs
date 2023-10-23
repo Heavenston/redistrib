@@ -7,7 +7,7 @@ pub mod ast {
 
     use crate::lexer::*;
 
-    use derive_more::*;
+    use macros::TryAs;
 
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     pub struct NodeId {
@@ -173,6 +173,31 @@ pub mod ast {
             _node: &'a Parameter<'a>,
             _order: VisitOrder,
         ) -> ControlFlow<()> { ControlFlow::Continue(()) }
+    }
+
+    #[derive(TryAs)]
+    pub enum AnyNode<'a> {
+        LetDeclaration(LetDeclaration<'a>),
+        MachineDeclaration(MachineDeclaration<'a>),
+        StateDeclaration(StateDeclaration<'a>),
+        StateTransition(StateTransition<'a>),
+        Dyn(Dyn<'a>),
+        Data(Data<'a>),
+        DataStmt(DataStmt<'a>),
+        On(On<'a>),
+        Parameter(Parameter<'a>),
+        ParentisedExpr(ParentisedExpr<'a>),
+        SemiedExpr(SemiedExpr<'a>),
+        BlockExpr(BlockExpr<'a>),
+        IfExpr(IfExpr<'a>),
+        WhileExpr(WhileExpr<'a>),
+        DecimalLiteral(DecimalLiteral<'a>),
+        StringLiteral(StringLiteral<'a>),
+        TrueLiteral(TrueLiteral<'a>),
+        FalseLiteral(FalseLiteral<'a>),
+        FunctionApplicationExpr(FunctionApplicationExpr<'a>),
+        IdenExpr(IdenExpr<'a>),
+        File(File<'a>),
     }
 
     /// Generic Container of statments supporting both surrounding every
@@ -385,7 +410,7 @@ pub mod ast {
     }
 
     /// Statements that go into a Machine
-    #[derive(Debug, From)]
+    #[derive(Debug, TryAs)]
     pub enum MachineStmt<'a> {
         Declaration(Declaration<'a>),
         State(StateDeclaration<'a>),
@@ -451,7 +476,7 @@ pub mod ast {
     }
 
     /// Statements that go into a State
-    #[derive(Debug, From)]
+    #[derive(Debug, TryAs)]
     pub enum StateStmt<'a> {
         Declaration(Declaration<'a>),
         Transition(StateTransition<'a>),
@@ -527,7 +552,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug, From)]
+    #[derive(Debug, TryAs)]
     pub enum Declaration<'a> {
         Machine(MachineDeclaration<'a>),
         Let(LetDeclaration<'a>),
@@ -744,7 +769,7 @@ pub mod ast {
     }
 
     /// A Type
-    #[derive(Debug, From)]
+    #[derive(Debug, TryAs)]
     pub enum Type<'a> {
         Named(IdenToken<'a>),
     }
@@ -863,7 +888,7 @@ pub mod ast {
     }
 
     /// Statement that goes into a BlockExpr
-    #[derive(From, Debug)]
+    #[derive(TryAs, Debug)]
     pub enum BlockStatement<'a> {
         Decl(Declaration<'a>),
         Expr(SemiedExpr<'a>),
@@ -1024,7 +1049,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug, From)]
+    #[derive(Debug)]
     pub struct DecimalLiteral<'a> {
         pub id: NodeId,
         pub tok: DecimalLiteralToken<'a>,
@@ -1049,7 +1074,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug, From)]
+    #[derive(Debug)]
     pub struct StringLiteral<'a> {
         pub id: NodeId,
         pub tok: StringLiteralToken<'a>,
@@ -1073,7 +1098,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug, From)]
+    #[derive(Debug)]
     pub struct TrueLiteral<'a> {
         pub id: NodeId,
         pub tok: TrueToken<'a>,
@@ -1097,7 +1122,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug, From)]
+    #[derive(Debug)]
     pub struct FalseLiteral<'a> {
         pub id: NodeId,
         pub tok: FalseToken<'a>,
@@ -1122,7 +1147,7 @@ pub mod ast {
     }
 
     /// A literal value
-    #[derive(Debug, From)]
+    #[derive(Debug, TryAs)]
     pub enum AnyLiteral<'a> {
         Decimal(DecimalLiteral<'a>),
         String(StringLiteral<'a>),
@@ -1190,7 +1215,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug, From)]
+    #[derive(Debug)]
     pub struct IdenExpr<'a> {
         pub id: NodeId,
 
@@ -1217,7 +1242,7 @@ pub mod ast {
 
     /// An expression with intemediate precedance
     /// Has the BooleanOr binary operator
-    #[derive(Debug, From)]
+    #[derive(Debug, TryAs)]
     pub enum Expr<'a> {
         Assignment(InfixOp<'a, Expr<'a>, EqualToken<'a>, Expr<'a>>),
 

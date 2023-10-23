@@ -6,13 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+macros = { path = "../comune_macros_internals", package = "comune_macros_internals" }
 arrayvec = "0.7.4"
 derive_more = "0.99.17"
 num_enum = "0.7.0"
 partial-min-max = "0.4.0"
 thiserror = "1.0.48"
-try_as = "0.1.0"
-try_as_macros = "0.1.0"
-try_as_traits = "0.1.0"
 vecmap-rs = "0.1.12"
 wasmer = { version = "4.2.2", features = ["wasmer-compiler-singlepass"] }
