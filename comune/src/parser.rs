@@ -9,6 +9,8 @@ pub mod ast {
 
     use macros::TryAs;
 
+    /// Unique ID (at least for the current execution) to identify nodes
+    /// Should be created through the [super::ParseContext::new_id] method
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     pub struct NodeId {
         id: u64,
@@ -31,8 +33,10 @@ pub mod ast {
         }
     }
 
-    /// Ast node but with no Id (only visit its children)
+    /// Trait implemented by all containers of [Node]s that themselfes
+    /// are not [Node]s, also auto implemented for all [Node]s
     pub trait NodeContainer<'a> {
+        /// Visit all [Node]s in the container
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V);
     }
 
@@ -41,6 +45,8 @@ pub mod ast {
         /// A unique id for the node
         fn id(&self) -> NodeId;
 
+        /// Visits all children nodes without revisiting the current Node
+        /// nor visiting any grand children (i.e. all nodes at depth 1) 
         fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V);
     }
 
@@ -54,12 +60,16 @@ pub mod ast {
     }
 
     pub trait AstVisitor<'a>: Sized {
+        /// Called for any walked node
+        /// For full ast traversal use [Node::walk]
+        /// (and/or [AnyNodeRef::any_walk]) to visit children
         fn visit_any(
             &mut self, node_ref: AnyNodeRef<'a>
-        ) {
-            node_ref.any_walk(self)
-        }
+        );
 
+        /// Default impl is to call visit_any
+        /// this is only a helper method for calling [AnyNodeRef]::from on
+        /// the node ref
         fn visit_n<N>(
             &mut self, node: &'a N
         )
@@ -1373,6 +1383,8 @@ impl<'a> ParseContext<'a> {
         }
     }
 
+    /// Creates a new (unique) [NodeId]
+    // FIXME: Maybe make it not reliant on global variables
     pub fn new_id(&mut self) -> NodeId {
         NodeId::next()
     }
