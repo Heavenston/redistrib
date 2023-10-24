@@ -8,6 +8,7 @@ pub mod ast {
     use crate::lexer::*;
 
     use macros::TryAs;
+    use num_enum::{ TryFromPrimitive, IntoPrimitive };
 
     /// Unique ID (at least for the current execution) to identify nodes
     /// Should be created through the [super::ParseContext::new_id] method
@@ -79,8 +80,43 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug, Clone, Copy, TryAs)]
-    pub enum AnyNodeRef<'a> {
+    macro_rules! any_node {
+        ($kind_name:ident;$name:ident;$($f:ident($type:ty),)*) => {
+            #[derive(Debug, Clone, Copy, TryFromPrimitive, IntoPrimitive, PartialEq, Eq)]
+            #[repr(u8)]
+            pub enum $kind_name {
+                $($f),*
+            }
+
+            #[derive(Debug, Clone, Copy, TryAs)]
+            pub enum $name<'a> {
+                $($f($type)),*
+            }
+
+            impl<'a> $name<'a> {
+                pub fn kind(&self) -> $kind_name {
+                    match self {
+                        $($name::$f(..) => $kind_name::$f,)*
+                    }
+                }
+
+                pub fn any_walk<V: AstVisitor<'a>>(&self, v: &mut V) {
+                    match self {
+                        $($name::$f(d) => d.walk(v),)*
+                    }
+                }
+        
+                pub fn any_id(&self) -> NodeId {
+                    match self {
+                        $($name::$f(d) => d.id(),)*
+                    }
+                }
+            }
+
+        };
+    }
+
+    any_node!(AnyNodeKind; AnyNodeRef;
         Assignment(&'a InfixOp<'a, Expr<'a>, EqualToken<'a>, Expr<'a>>),
         BooleanOr(&'a InfixOp<'a, Expr<'a>, DoubleVBarToken<'a>, Expr<'a>>),
         BooleanAnd(&'a InfixOp<'a, Expr<'a>, DoubleAndToken<'a>, Expr<'a>>),
@@ -115,87 +151,7 @@ pub mod ast {
         FunctionApplicationExpr(&'a FunctionApplicationExpr<'a>),
         IdenExpr(&'a IdenExpr<'a>),
         File(&'a File<'a>),
-    }
-
-    impl<'a> AnyNodeRef<'a> {
-        pub fn any_walk<V: AstVisitor<'a>>(&self, v: &mut V) {
-            match self {
-                Self::Assignment(d) => d.walk(v),
-                Self::BooleanOr(d) => d.walk(v),
-                Self::BooleanAnd(d) => d.walk(v),
-                Self::Equality(d) => d.walk(v),
-                Self::Greater(d) => d.walk(v),
-                Self::GreaterEqual(d) => d.walk(v),
-                Self::Lower(d) => d.walk(v),
-                Self::LowerEqual(d) => d.walk(v),
-                Self::Plus(d) => d.walk(v),
-                Self::Minus(d) => d.walk(v),
-                Self::Times(d) => d.walk(v),
-                Self::Divide(d) => d.walk(v),
-                Self::LetBinding(d) => d.walk(v),
-                Self::ConstDeclaration(d) => d.walk(v),
-                Self::MachineDeclaration(d) => d.walk(v),
-                Self::StateDeclaration(d) => d.walk(v),
-                Self::StateTransition(d) => d.walk(v),
-                Self::Dyn(d) => d.walk(v),
-                Self::Data(d) => d.walk(v),
-                Self::DataItem(d) => d.walk(v),
-                Self::On(d) => d.walk(v),
-                Self::Parameter(d) => d.walk(v),
-                Self::ParentisedExpr(d) => d.walk(v),
-                Self::SemiedExpr(d) => d.walk(v),
-                Self::BlockExpr(d) => d.walk(v),
-                Self::IfExpr(d) => d.walk(v),
-                Self::WhileExpr(d) => d.walk(v),
-                Self::DecimalLiteral(d) => d.walk(v),
-                Self::StringLiteral(d) => d.walk(v),
-                Self::TrueLiteral(d) => d.walk(v),
-                Self::FalseLiteral(d) => d.walk(v),
-                Self::FunctionApplicationExpr(d) => d.walk(v),
-                Self::IdenExpr(d) => d.walk(v),
-                Self::File(d) => d.walk(v),
-            }
-        }
-        
-        pub fn any_id(&self) -> NodeId {
-            match self {
-                Self::Assignment(d) => d.id(),
-                Self::BooleanOr(d) => d.id(),
-                Self::BooleanAnd(d) => d.id(),
-                Self::Equality(d) => d.id(),
-                Self::Greater(d) => d.id(),
-                Self::GreaterEqual(d) => d.id(),
-                Self::Lower(d) => d.id(),
-                Self::LowerEqual(d) => d.id(),
-                Self::Plus(d) => d.id(),
-                Self::Minus(d) => d.id(),
-                Self::Times(d) => d.id(),
-                Self::Divide(d) => d.id(),
-                Self::LetBinding(d) => d.id(),
-                Self::ConstDeclaration(d) => d.id(),
-                Self::MachineDeclaration(d) => d.id(),
-                Self::StateDeclaration(d) => d.id(),
-                Self::StateTransition(d) => d.id(),
-                Self::Dyn(d) => d.id(),
-                Self::Data(d) => d.id(),
-                Self::DataItem(d) => d.id(),
-                Self::On(d) => d.id(),
-                Self::Parameter(d) => d.id(),
-                Self::ParentisedExpr(d) => d.id(),
-                Self::SemiedExpr(d) => d.id(),
-                Self::BlockExpr(d) => d.id(),
-                Self::IfExpr(d) => d.id(),
-                Self::WhileExpr(d) => d.id(),
-                Self::DecimalLiteral(d) => d.id(),
-                Self::StringLiteral(d) => d.id(),
-                Self::TrueLiteral(d) => d.id(),
-                Self::FalseLiteral(d) => d.id(),
-                Self::FunctionApplicationExpr(d) => d.id(),
-                Self::IdenExpr(d) => d.id(),
-                Self::File(d) => d.id(),
-            }
-        }
-    }
+    );
 
     /// Generic Container of items supporting both surrounding all items
     /// with curly braces or just a semi, making every following statements
