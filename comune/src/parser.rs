@@ -153,73 +153,6 @@ pub mod ast {
         File(&'a File<'a>),
     );
 
-    /// Generic Container of items supporting both surrounding all items
-    /// with curly braces or just a semi, making every following statements
-    /// as being part of the container, until the End token is reached.
-    #[derive(Debug)]
-    pub enum ItemsContainer<'a, End: KnownToken<'a>, T> {
-        Never {
-            never: !,
-            phantom: PhantomData<*const End>,
-        },
-        UseSemi {
-            semi: SemiColonToken<'a>,
-            items: Box<[T]>,
-        },
-        UseBrackets {
-            open: CurlyOpenToken<'a>,
-            items: Box<[T]>,
-            close: CurlyCloseToken<'a>,
-        },
-    }
-
-    impl<'a, End, T> NodeContainer<'a> for ItemsContainer<'a, End, T>
-        where End: KnownToken<'a>,
-              T: NodeContainer<'a>,
-    {
-        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            match self {
-                Self::UseSemi { semi: _, items } => {
-                    for t in items.iter() {
-                        t.container_visit(v);
-                    }
-                },
-                Self::UseBrackets { open: _, items, close: _ } => {
-                    for t in items.iter() {
-                        t.container_visit(v);
-                    }
-                },
-                Self::Never { .. } => unreachable!(),
-            }
-        }
-    }
-
-    impl<'a, End, T> Display for ItemsContainer<'a, End, T>
-        where End: KnownToken<'a> + Display,
-              T: Display
-    {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::UseSemi { semi, items } => {
-                    write!(f, "{semi}")?;
-                    for item in items.iter() {
-                        write!(f, " {item}")?;
-                    }
-                },
-                Self::UseBrackets { open, items, close } => {
-                    write!(f, "{open}")?;
-                    for item in items.iter() {
-                        write!(f, " {item}")?;
-                    }
-                    write!(f, " {close}")?;
-                },
-                Self::Never { .. } => unreachable!(),
-            }
-
-            Ok(())
-        }
-    }
-
     /// List of nodes separated by a token, usually a comma (ex. arguments)
     /// with optional trailing separator
     #[derive(Debug)]
@@ -356,7 +289,9 @@ pub mod ast {
 
         pub machine_token: MachineToken<'a>,
         pub iden: IdenToken<'a>,
-        pub items: ItemsContainer<'a, MachineToken<'a>, MachineItem<'a>>,
+        pub open: CurlyOpenToken<'a>,
+        pub items: Box<[MachineItem<'a>]>,
+        pub close: CurlyCloseToken<'a>,
     }
 
     impl<'a> Node<'a> for MachineDeclaration<'a> {
@@ -365,7 +300,9 @@ pub mod ast {
         }
 
         fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            self.items.container_visit(v)
+            for i in self.items.iter() {
+                i.container_visit(v);
+            }
         }
     }
 
@@ -373,7 +310,11 @@ pub mod ast {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{} ", self.machine_token)?;
             write!(f, "{} ", self.iden)?;
-            write!(f, "{}", self.items)?;
+            write!(f, "{}", self.open)?;
+            for i in self.items.iter() {
+                write!(f, " {}", i)?;
+            }
+            write!(f, " {}", self.close)?;
 
             Ok(())
         }
@@ -414,7 +355,9 @@ pub mod ast {
         pub initial_token: Option<InitialToken<'a>>,
         pub state_token: StateToken<'a>,
         pub iden: IdenToken<'a>,
-        pub items: ItemsContainer<'a, StateToken<'a>, StateItem<'a>>,
+        pub open: CurlyOpenToken<'a>,
+        pub items: Box<[StateItem<'a>]>,
+        pub close: CurlyCloseToken<'a>,
     }
 
     impl<'a> Node<'a> for StateDeclaration<'a> {
@@ -423,7 +366,9 @@ pub mod ast {
         }
 
         fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            self.items.container_visit(v)
+            for i in self.items.iter() {
+                i.container_visit(v);
+            }
         }
     }
 
@@ -434,7 +379,11 @@ pub mod ast {
             }
             write!(f, "{} ", self.state_token)?;
             write!(f, "{} ", self.iden)?;
-            write!(f, "{}", self.items)?;
+            write!(f, "{}", self.open)?;
+            for i in self.items.iter() {
+                write!(f, " {}", i)?;
+            }
+            write!(f, " {}", self.close)?;
 
             Ok(())
         }
@@ -1422,40 +1371,6 @@ impl<'a, T: KnownToken<'a>> Parsable<'a> for T {
     }
 }
 
-impl<'a, End: KnownToken<'a>, T: Parsable<'a>> Parsable<'a> for ItemsContainer<'a, End, T> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            SemiColonToken,
-            CurlyOpenToken
-        )
-    }
-
-    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        let mut items = vec![];
-        match_token!(ctx;
-            t @ SemiColonToken => {
-                while ctx.tokens.peek()?.kind != End::KIND {
-                    items.push(T::parse(ctx)?);
-                }
-
-                Ok(Self::UseSemi { semi: t, items: items.into_boxed_slice() })
-            }
-            t @ CurlyOpenToken => {
-                while ctx.tokens.peek()?.kind != TokenType::CurlyClose {
-                    items.push(T::parse(ctx)?);
-                }
-                let close = ctx.tokens.expected::<CurlyCloseToken>()?;
-
-                Ok(Self::UseBrackets {
-                    open: t,
-                    items: items.into_boxed_slice(),
-                    close
-                })
-            }
-        )
-    }
-}
-
 impl<'a, End, Sep, T> Parsable<'a> for SeparatedList<'a, End, Sep, T>
     where End: KnownToken<'a>,
           Sep: KnownToken<'a>,
@@ -1504,14 +1419,21 @@ impl<'a> Parsable<'a> for MachineDeclaration<'a> {
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let machine_token = ctx.tokens.expected::<MachineToken>()?;
         let iden = ctx.tokens.expected::<IdenToken>()?;
-        let items = ItemsContainer::parse(ctx)?;
+        let open = parse(ctx)?;
+        let mut items = vec![];
+        while ctx.tokens.peek_eq(TokenType::CurlyClose)?.is_none() {
+            items.push(parse(ctx)?);
+        }
+        let close = parse(ctx)?;
 
         Ok(MachineDeclaration {
             id: ctx.new_id(),
 
             machine_token,
             iden,
-            items,
+            open,
+            items: items.into_boxed_slice(),
+            close,
         })
     }
 }
@@ -1544,7 +1466,13 @@ impl<'a> Parsable<'a> for StateDeclaration<'a> {
         let initial_token = ctx.tokens.get_eq::<InitialToken>()?;
         let state_token = ctx.tokens.expected::<StateToken>()?;
         let iden = ctx.tokens.expected::<IdenToken>()?;
-        let items = ItemsContainer::parse(ctx)?;
+
+        let open = parse(ctx)?;
+        let mut items = vec![];
+        while ctx.tokens.peek_eq(TokenType::CurlyClose)?.is_none() {
+            items.push(parse(ctx)?);
+        }
+        let close = parse(ctx)?;
 
         Ok(StateDeclaration {
             id: ctx.new_id(),
@@ -1552,7 +1480,9 @@ impl<'a> Parsable<'a> for StateDeclaration<'a> {
             initial_token,
             state_token,
             iden,
-            items,
+            open,
+            items: items.into_boxed_slice(),
+            close,
         })
     }
 }
