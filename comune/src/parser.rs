@@ -100,7 +100,7 @@ pub mod ast {
         StateTransition(&'a StateTransition<'a>),
         Dyn(&'a Dyn<'a>),
         Data(&'a Data<'a>),
-        DataStmt(&'a DataStmt<'a>),
+        DataItem(&'a DataItem<'a>),
         On(&'a On<'a>),
         Parameter(&'a Parameter<'a>),
         ParentisedExpr(&'a ParentisedExpr<'a>),
@@ -139,7 +139,7 @@ pub mod ast {
                 Self::StateTransition(d) => d.walk(v),
                 Self::Dyn(d) => d.walk(v),
                 Self::Data(d) => d.walk(v),
-                Self::DataStmt(d) => d.walk(v),
+                Self::DataItem(d) => d.walk(v),
                 Self::On(d) => d.walk(v),
                 Self::Parameter(d) => d.walk(v),
                 Self::ParentisedExpr(d) => d.walk(v),
@@ -178,7 +178,7 @@ pub mod ast {
                 Self::StateTransition(d) => d.id(),
                 Self::Dyn(d) => d.id(),
                 Self::Data(d) => d.id(),
-                Self::DataStmt(d) => d.id(),
+                Self::DataItem(d) => d.id(),
                 Self::On(d) => d.id(),
                 Self::Parameter(d) => d.id(),
                 Self::ParentisedExpr(d) => d.id(),
@@ -197,39 +197,39 @@ pub mod ast {
         }
     }
 
-    /// Generic Container of statments supporting both surrounding every
-    /// statements or just a semi, making every following statements as being
-    /// part of the container, until the End token is reached.
+    /// Generic Container of items supporting both surrounding all items
+    /// with curly braces or just a semi, making every following statements
+    /// as being part of the container, until the End token is reached.
     #[derive(Debug)]
-    pub enum StmtContainer<'a, End: KnownToken<'a>, T> {
+    pub enum ItemsContainer<'a, End: KnownToken<'a>, T> {
         Never {
             never: !,
             phantom: PhantomData<*const End>,
         },
         UseSemi {
             semi: SemiColonToken<'a>,
-            stmts: Box<[T]>,
+            items: Box<[T]>,
         },
         UseBrackets {
             open: CurlyOpenToken<'a>,
-            stmts: Box<[T]>,
+            items: Box<[T]>,
             close: CurlyCloseToken<'a>,
         },
     }
 
-    impl<'a, End, T> NodeContainer<'a> for StmtContainer<'a, End, T>
+    impl<'a, End, T> NodeContainer<'a> for ItemsContainer<'a, End, T>
         where End: KnownToken<'a>,
               T: NodeContainer<'a>,
     {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::UseSemi { semi: _, stmts } => {
-                    for t in stmts.iter() {
+                Self::UseSemi { semi: _, items } => {
+                    for t in items.iter() {
                         t.container_visit(v);
                     }
                 },
-                Self::UseBrackets { open: _, stmts, close: _ } => {
-                    for t in stmts.iter() {
+                Self::UseBrackets { open: _, items, close: _ } => {
+                    for t in items.iter() {
                         t.container_visit(v);
                     }
                 },
@@ -238,22 +238,22 @@ pub mod ast {
         }
     }
 
-    impl<'a, End, T> Display for StmtContainer<'a, End, T>
+    impl<'a, End, T> Display for ItemsContainer<'a, End, T>
         where End: KnownToken<'a> + Display,
               T: Display
     {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                Self::UseSemi { semi, stmts } => {
+                Self::UseSemi { semi, items } => {
                     write!(f, "{semi}")?;
-                    for stmt in stmts.iter() {
-                        write!(f, " {stmt}")?;
+                    for item in items.iter() {
+                        write!(f, " {item}")?;
                     }
                 },
-                Self::UseBrackets { open, stmts, close } => {
+                Self::UseBrackets { open, items, close } => {
                     write!(f, "{open}")?;
-                    for stmt in stmts.iter() {
-                        write!(f, " {stmt}")?;
+                    for item in items.iter() {
+                        write!(f, " {item}")?;
                     }
                     write!(f, " {close}")?;
                 },
@@ -270,7 +270,7 @@ pub mod ast {
     pub struct SeparatedList<'a, End: KnownToken<'a>, Sep: KnownToken<'a>, T> {
         pub phantom: PhantomData<*const &'a End>,
 
-        pub stmts: Box<[(T, Sep)]>,
+        pub items: Box<[(T, Sep)]>,
         /// Last statement is the only one with optional separator
         pub last: Option<(Box<T>, Option<Sep>)>,
     }
@@ -281,7 +281,7 @@ pub mod ast {
               T: NodeContainer<'a>
     {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            for (s, _) in self.stmts.iter() {
+            for (s, _) in self.items.iter() {
                 s.container_visit(v);
             }
         }
@@ -293,7 +293,7 @@ pub mod ast {
               T: Display
     {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            for (t, sep) in self.stmts.iter() {
+            for (t, sep) in self.items.iter() {
                 write!(f, "{t}{sep}")?;
             }
             if let Some((t, sep)) = &self.last {
@@ -400,7 +400,7 @@ pub mod ast {
 
         pub machine_token: MachineToken<'a>,
         pub iden: IdenToken<'a>,
-        pub stmts: StmtContainer<'a, MachineToken<'a>, MachineStmt<'a>>,
+        pub items: ItemsContainer<'a, MachineToken<'a>, MachineItem<'a>>,
     }
 
     impl<'a> Node<'a> for MachineDeclaration<'a> {
@@ -409,7 +409,7 @@ pub mod ast {
         }
 
         fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            self.stmts.container_visit(v)
+            self.items.container_visit(v)
         }
     }
 
@@ -417,20 +417,20 @@ pub mod ast {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{} ", self.machine_token)?;
             write!(f, "{} ", self.iden)?;
-            write!(f, "{}", self.stmts)?;
+            write!(f, "{}", self.items)?;
 
             Ok(())
         }
     }
 
-    /// Statements that go into a Machine
+    /// Items that go into a Machine
     #[derive(Debug, TryAs)]
-    pub enum MachineStmt<'a> {
+    pub enum MachineItem<'a> {
         Declaration(Declaration<'a>),
         State(StateDeclaration<'a>),
     }
 
-    impl<'a> NodeContainer<'a> for MachineStmt<'a> {
+    impl<'a> NodeContainer<'a> for MachineItem<'a> {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
                 Self::Declaration(e) => e.container_visit(v),
@@ -439,11 +439,11 @@ pub mod ast {
         }
     }
 
-    impl<'a> Display for MachineStmt<'a> {
+    impl<'a> Display for MachineItem<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                MachineStmt::Declaration(s) => write!(f, "{s}")?,
-                MachineStmt::State(s) => write!(f, "{s}")?,
+                MachineItem::Declaration(s) => write!(f, "{s}")?,
+                MachineItem::State(s) => write!(f, "{s}")?,
             }
 
             Ok(())
@@ -458,7 +458,7 @@ pub mod ast {
         pub initial_token: Option<InitialToken<'a>>,
         pub state_token: StateToken<'a>,
         pub iden: IdenToken<'a>,
-        pub stmts: StmtContainer<'a, StateToken<'a>, StateStmt<'a>>,
+        pub items: ItemsContainer<'a, StateToken<'a>, StateItem<'a>>,
     }
 
     impl<'a> Node<'a> for StateDeclaration<'a> {
@@ -467,7 +467,7 @@ pub mod ast {
         }
 
         fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            self.stmts.container_visit(v)
+            self.items.container_visit(v)
         }
     }
 
@@ -478,15 +478,15 @@ pub mod ast {
             }
             write!(f, "{} ", self.state_token)?;
             write!(f, "{} ", self.iden)?;
-            write!(f, "{}", self.stmts)?;
+            write!(f, "{}", self.items)?;
 
             Ok(())
         }
     }
 
-    /// Statements that go into a State
+    /// Itemss that go into a State
     #[derive(Debug, TryAs)]
-    pub enum StateStmt<'a> {
+    pub enum StateItem<'a> {
         Declaration(Declaration<'a>),
         Transition(StateTransition<'a>),
         Dyn(Dyn<'a>),
@@ -494,7 +494,7 @@ pub mod ast {
         On(On<'a>),
     }
 
-    impl<'a> NodeContainer<'a> for StateStmt<'a> {
+    impl<'a> NodeContainer<'a> for StateItem<'a> {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
                 Self::Declaration(e) => e.container_visit(v),
@@ -506,7 +506,7 @@ pub mod ast {
         }
     }
 
-    impl<'a> Display for StateStmt<'a> {
+    impl<'a> Display for StateItem<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Declaration(e) => write!(f, "{e}")?,
@@ -628,7 +628,7 @@ pub mod ast {
 
         pub data: DataToken<'a>,
         pub curly_open: CurlyOpenToken<'a>,
-        pub stmts: SeparatedList<'a, CurlyCloseToken<'a>, ComaToken<'a>, DataStmt<'a>>,
+        pub items: SeparatedList<'a, CurlyCloseToken<'a>, ComaToken<'a>, DataItem<'a>>,
         pub curly_close: CurlyCloseToken<'a>,
     }
 
@@ -638,7 +638,7 @@ pub mod ast {
         }
 
         fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            self.stmts.container_visit(v);
+            self.items.container_visit(v);
         }
     }
 
@@ -647,7 +647,7 @@ pub mod ast {
             write!(f, "{} {}{}{}",
                 self.data,
                 self.curly_open,
-                self.stmts,
+                self.items,
                 self.curly_close
             )?;
 
@@ -655,9 +655,9 @@ pub mod ast {
         }
     }
 
-    /// Statements that go into a Data statement
+    /// Itemss that go into a Data statement
     #[derive(Debug)]
-    pub struct DataStmt<'a> {
+    pub struct DataItem<'a> {
         pub id: NodeId,
 
         pub mutability: Option<MutToken<'a>>,
@@ -665,7 +665,7 @@ pub mod ast {
         pub ty: Type<'a>,
     }
 
-    impl<'a> Node<'a> for DataStmt<'a> {
+    impl<'a> Node<'a> for DataItem<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
@@ -673,7 +673,7 @@ pub mod ast {
         fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
     }
 
-    impl<'a> Display for DataStmt<'a> {
+    impl<'a> Display for DataItem<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             if let Some(mut_) = &self.mutability {
                 write!(f, "{mut_} ")?;
@@ -859,15 +859,15 @@ pub mod ast {
         }
     }
 
-    /// Statement that goes into a BlockExpr
+    /// Items that goes into a BlockExpr
     #[derive(TryAs, Debug)]
-    pub enum BlockStatement<'a> {
+    pub enum BlockItem<'a> {
         Decl(Declaration<'a>),
         Let(LetBinding<'a>),
         Expr(SemiedExpr<'a>),
     }
 
-    impl<'a> NodeContainer<'a> for BlockStatement<'a> {
+    impl<'a> NodeContainer<'a> for BlockItem<'a> {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
                 Self::Decl(e) => e.container_visit(v),
@@ -877,7 +877,7 @@ pub mod ast {
         }
     }
 
-    impl<'a> Display for BlockStatement<'a> {
+    impl<'a> Display for BlockItem<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Decl(e) => write!(f, "{e}")?,
@@ -897,7 +897,7 @@ pub mod ast {
 
         pub open: CurlyOpenToken<'a>,
 
-        pub stmts: Box<[BlockStatement<'a>]>,
+        pub items: Box<[BlockItem<'a>]>,
         /// If there is an expression without semi colon at the end
         /// it is placed here
         pub last_expr: Option<Box<Expr<'a>>>,
@@ -911,8 +911,8 @@ pub mod ast {
         }
 
         fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            for s in self.stmts.iter() {
-                s.container_visit(v);
+            for i in self.items.iter() {
+                i.container_visit(v);
             }
             if let Some(le) = &self.last_expr {
                 le.container_visit(v);
@@ -923,7 +923,7 @@ pub mod ast {
     impl<'a> Display for BlockExpr<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{}", self.open)?;
-            for st in self.stmts.iter() {
+            for st in self.items.iter() {
                 write!(f, "{st}")?;
             }
             if let Some(last) = &self.last_expr {
@@ -1466,7 +1466,7 @@ impl<'a, T: KnownToken<'a>> Parsable<'a> for T {
     }
 }
 
-impl<'a, End: KnownToken<'a>, T: Parsable<'a>> Parsable<'a> for StmtContainer<'a, End, T> {
+impl<'a, End: KnownToken<'a>, T: Parsable<'a>> Parsable<'a> for ItemsContainer<'a, End, T> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             SemiColonToken,
@@ -1475,24 +1475,24 @@ impl<'a, End: KnownToken<'a>, T: Parsable<'a>> Parsable<'a> for StmtContainer<'a
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        let mut stmts = vec![];
+        let mut items = vec![];
         match_token!(ctx;
             t @ SemiColonToken => {
                 while ctx.tokens.peek()?.kind != End::KIND {
-                    stmts.push(T::parse(ctx)?);
+                    items.push(T::parse(ctx)?);
                 }
 
-                Ok(Self::UseSemi { semi: t, stmts: stmts.into_boxed_slice() })
+                Ok(Self::UseSemi { semi: t, items: items.into_boxed_slice() })
             }
             t @ CurlyOpenToken => {
                 while ctx.tokens.peek()?.kind != TokenType::CurlyClose {
-                    stmts.push(T::parse(ctx)?);
+                    items.push(T::parse(ctx)?);
                 }
                 let close = ctx.tokens.expected::<CurlyCloseToken>()?;
 
                 Ok(Self::UseBrackets {
                     open: t,
-                    stmts: stmts.into_boxed_slice(),
+                    items: items.into_boxed_slice(),
                     close
                 })
             }
@@ -1513,20 +1513,20 @@ impl<'a, End, Sep, T> Parsable<'a> for SeparatedList<'a, End, Sep, T>
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        let mut stmts = Vec::new();
+        let mut items = Vec::new();
         let mut last = None;
 
         while ctx.tokens.peek_eq(End::KIND)?.is_none() {
-            let stmt = T::parse(ctx)?;
+            let item = T::parse(ctx)?;
             let coma = ctx.tokens.get_eq()?;
 
             if coma.is_none() || ctx.tokens.peek_eq(End::KIND)?.is_some() {
-                last = Some((Box::new(stmt), coma));
+                last = Some((Box::new(item), coma));
                 break;
             }
 
-            stmts.push((
-                stmt,
+            items.push((
+                item,
                 coma.unwrap(),
             ));
         }
@@ -1534,7 +1534,7 @@ impl<'a, End, Sep, T> Parsable<'a> for SeparatedList<'a, End, Sep, T>
 
         Ok(Self {
             phantom: std::marker::PhantomData,
-            stmts: stmts.into_boxed_slice(),
+            items: items.into_boxed_slice(),
             last,
         })
     }
@@ -1548,19 +1548,19 @@ impl<'a> Parsable<'a> for MachineDeclaration<'a> {
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let machine_token = ctx.tokens.expected::<MachineToken>()?;
         let iden = ctx.tokens.expected::<IdenToken>()?;
-        let stmts = StmtContainer::parse(ctx)?;
+        let items = ItemsContainer::parse(ctx)?;
 
         Ok(MachineDeclaration {
             id: ctx.new_id(),
 
             machine_token,
             iden,
-            stmts,
+            items,
         })
     }
 }
 
-impl<'a> Parsable<'a> for MachineStmt<'a> {
+impl<'a> Parsable<'a> for MachineItem<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             Declaration,
@@ -1588,7 +1588,7 @@ impl<'a> Parsable<'a> for StateDeclaration<'a> {
         let initial_token = ctx.tokens.get_eq::<InitialToken>()?;
         let state_token = ctx.tokens.expected::<StateToken>()?;
         let iden = ctx.tokens.expected::<IdenToken>()?;
-        let stmts = StmtContainer::parse(ctx)?;
+        let items = ItemsContainer::parse(ctx)?;
 
         Ok(StateDeclaration {
             id: ctx.new_id(),
@@ -1596,12 +1596,12 @@ impl<'a> Parsable<'a> for StateDeclaration<'a> {
             initial_token,
             state_token,
             iden,
-            stmts,
+            items,
         })
     }
 }
 
-impl<'a> Parsable<'a> for StateStmt<'a> {
+impl<'a> Parsable<'a> for StateItem<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             Declaration,
@@ -1755,7 +1755,7 @@ impl<'a> Parsable<'a> for Data<'a> {
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let data = ctx.tokens.expected::<DataToken>()?;
         let curly_open = ctx.tokens.expected::<CurlyOpenToken>()?;
-        let stmts = SeparatedList::parse(ctx)?;
+        let items = SeparatedList::parse(ctx)?;
         let curly_close = ctx.tokens.expected::<CurlyCloseToken>()?;
 
         Ok(Self {
@@ -1763,13 +1763,13 @@ impl<'a> Parsable<'a> for Data<'a> {
 
             data,
             curly_open,
-            stmts,
+            items,
             curly_close,
         })
     }
 }
 
-impl<'a> Parsable<'a> for DataStmt<'a> {
+impl<'a> Parsable<'a> for DataItem<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             MutToken,
@@ -2122,27 +2122,27 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
             Decl(Declaration<'a>),
         }
 
-        let mut stmts = Vec::new();
+        let mut items = Vec::new();
         let mut last_expr = None;
 
         while ctx.tokens.peek_eq(TokenType::CurlyClose)?.is_none() {
-            let stmt = l_one!(ctx;
+            let item = l_one!(ctx;
                 MyItem::Expr => Expr,
                 MyItem::Let => LetBinding,
                 MyItem::Decl => Declaration
             )?;
 
-            match stmt {
+            match item {
                 MyItem::Decl(d) => {
-                    stmts.push(BlockStatement::Decl(d));
+                    items.push(BlockItem::Decl(d));
                 },
                 MyItem::Let(d) => {
-                    stmts.push(BlockStatement::Let(d));
+                    items.push(BlockItem::Let(d));
                 },
                 MyItem::Expr(e)
                     if ctx.tokens.peek_eq(TokenType::SemiColon)?.is_some() =>
                 {
-                    stmts.push(BlockStatement::Expr(SemiedExpr {
+                    items.push(BlockItem::Expr(SemiedExpr {
                         id: ctx.new_id(),
 
                         expr: Box::new(e),
@@ -2163,7 +2163,7 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
             id: ctx.new_id(),
 
             open,
-            stmts: stmts.into_boxed_slice(),
+            items: items.into_boxed_slice(),
             last_expr,
             close,
         })
