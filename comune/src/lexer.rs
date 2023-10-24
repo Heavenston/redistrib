@@ -274,6 +274,7 @@ tokens!(
     On(OnToken, "'on'"),
     Mut(MutToken, "'mut'"),
     Let(LetToken, "'let'"),
+    Const(ConstToken, "'const'"),
 
     Iden(IdenToken, "<identifier>"),
 
@@ -414,6 +415,7 @@ impl<'a> Tokenizer<'a> {
             "on" => Ok(TokenType::On),
             "mut" => Ok(TokenType::Mut),
             "let" => Ok(TokenType::Let),
+            "const" => Ok(TokenType::Const),
 
             "if" => Ok(TokenType::If),
             "else" => Ok(TokenType::Else),

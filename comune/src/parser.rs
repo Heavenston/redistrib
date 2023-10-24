@@ -93,7 +93,8 @@ pub mod ast {
         Minus(&'a InfixOp<'a, Expr<'a>, DashToken<'a>, Expr<'a>>),
         Times(&'a InfixOp<'a, Expr<'a>, StarToken<'a>, Expr<'a>>),
         Divide(&'a InfixOp<'a, Expr<'a>, FSlashToken<'a>, Expr<'a>>),
-        LetDeclaration(&'a LetDeclaration<'a>),
+        LetBinding(&'a LetBinding<'a>),
+        ConstDeclaration(&'a ConstDeclaration<'a>),
         MachineDeclaration(&'a MachineDeclaration<'a>),
         StateDeclaration(&'a StateDeclaration<'a>),
         StateTransition(&'a StateTransition<'a>),
@@ -131,7 +132,8 @@ pub mod ast {
                 Self::Minus(d) => d.walk(v),
                 Self::Times(d) => d.walk(v),
                 Self::Divide(d) => d.walk(v),
-                Self::LetDeclaration(d) => d.walk(v),
+                Self::LetBinding(d) => d.walk(v),
+                Self::ConstDeclaration(d) => d.walk(v),
                 Self::MachineDeclaration(d) => d.walk(v),
                 Self::StateDeclaration(d) => d.walk(v),
                 Self::StateTransition(d) => d.walk(v),
@@ -169,7 +171,8 @@ pub mod ast {
                 Self::Minus(d) => d.id(),
                 Self::Times(d) => d.id(),
                 Self::Divide(d) => d.id(),
-                Self::LetDeclaration(d) => d.id(),
+                Self::LetBinding(d) => d.id(),
+                Self::ConstDeclaration(d) => d.id(),
                 Self::MachineDeclaration(d) => d.id(),
                 Self::StateDeclaration(d) => d.id(),
                 Self::StateTransition(d) => d.id(),
@@ -305,7 +308,7 @@ pub mod ast {
     }
 
     #[derive(Debug)]
-    pub struct LetDeclaration<'a> {
+    pub struct LetBinding<'a> {
         pub id: NodeId,
 
         pub let_: LetToken<'a>,
@@ -317,7 +320,7 @@ pub mod ast {
         pub semi: SemiColonToken<'a>,
     }
 
-    impl<'a> Node<'a> for LetDeclaration<'a> {
+    impl<'a> Node<'a> for LetBinding<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
@@ -327,7 +330,7 @@ pub mod ast {
         }
     }
 
-    impl<'a> Display for LetDeclaration<'a> {
+    impl<'a> Display for LetBinding<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{}", self.let_)?;
             if let Some(mut_) = &self.mut_ {
@@ -337,6 +340,39 @@ pub mod ast {
             for params in self.params.iter() {
                 write!(f, " {}", params)?;
             }
+            write!(f, " {}", self.eq)?;
+            write!(f, " {}", self.expr)?;
+            write!(f, "{}", self.semi)?;
+
+            Ok(())
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct ConstDeclaration<'a> {
+        pub id: NodeId,
+
+        pub const_: ConstToken<'a>,
+        pub name: IdenToken<'a>,
+        pub eq: EqualToken<'a>,
+        pub expr: Expr<'a>,
+        pub semi: SemiColonToken<'a>,
+    }
+
+    impl<'a> Node<'a> for ConstDeclaration<'a> {
+        fn id(&self) -> NodeId {
+            self.id
+        }
+
+        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            self.expr.container_visit(v)
+        }
+    }
+
+    impl<'a> Display for ConstDeclaration<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.const_)?;
+            write!(f, " {}", self.name)?;
             write!(f, " {}", self.eq)?;
             write!(f, " {}", self.expr)?;
             write!(f, "{}", self.semi)?;
@@ -523,14 +559,14 @@ pub mod ast {
     #[derive(Debug, TryAs)]
     pub enum Declaration<'a> {
         Machine(MachineDeclaration<'a>),
-        Let(LetDeclaration<'a>),
+        Const(ConstDeclaration<'a>),
     }
 
     impl<'a> NodeContainer<'a> for Declaration<'a> {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
                 Self::Machine(e) => e.container_visit(v),
-                Self::Let(e) => e.container_visit(v),
+                Self::Const(e) => e.container_visit(v),
             }
         }
     }
@@ -539,7 +575,7 @@ pub mod ast {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Machine(m) => write!(f, "{m}")?,
-                Self::Let(m) => write!(f, "{m}")?,
+                Self::Const(m) => write!(f, "{m}")?,
             }
 
             Ok(())
@@ -827,6 +863,7 @@ pub mod ast {
     #[derive(TryAs, Debug)]
     pub enum BlockStatement<'a> {
         Decl(Declaration<'a>),
+        Let(LetBinding<'a>),
         Expr(SemiedExpr<'a>),
     }
 
@@ -834,6 +871,7 @@ pub mod ast {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
                 Self::Decl(e) => e.container_visit(v),
+                Self::Let(e) => e.container_visit(v),
                 Self::Expr(e) => e.container_visit(v),
             }
         }
@@ -843,6 +881,7 @@ pub mod ast {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Decl(e) => write!(f, "{e}")?,
+                Self::Let(e) => write!(f, "{e}")?,
                 Self::Expr(e) => write!(f, "{e}")?,
             }
 
@@ -1605,7 +1644,7 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
     }
 }
 
-impl<'a> Parsable<'a> for LetDeclaration<'a> {
+impl<'a> Parsable<'a> for LetBinding<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             LetToken
@@ -1638,18 +1677,44 @@ impl<'a> Parsable<'a> for LetDeclaration<'a> {
     }
 }
 
+impl<'a> Parsable<'a> for ConstDeclaration<'a> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        expected!(
+            ConstToken
+        )
+    }
+
+    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
+        let const_ = parse(ctx)?;
+        let name = parse(ctx)?;
+        let eq = parse(ctx)?;
+        let expr = parse(ctx)?;
+        let semi = parse(ctx)?;
+
+        Ok(Self {
+            id: ctx.new_id(),
+
+            const_,
+            name,
+            eq,
+            expr,
+            semi,
+        })
+    }
+}
+
 impl<'a> Parsable<'a> for Declaration<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             MachineDeclaration,
-            LetDeclaration
+            ConstDeclaration
         )
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         l_one!(ctx;
             Self::Machine => MachineDeclaration,
-            Self::Let => LetDeclaration
+            Self::Const => ConstDeclaration
         )
     }
 }
@@ -2051,8 +2116,9 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let open = parse(ctx)?;
 
-        enum ExprOrDecl<'a> {
+        enum MyItem<'a> {
             Expr(Expr<'a>),
+            Let(LetBinding<'a>),
             Decl(Declaration<'a>),
         }
 
@@ -2061,15 +2127,19 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
 
         while ctx.tokens.peek_eq(TokenType::CurlyClose)?.is_none() {
             let stmt = l_one!(ctx;
-                ExprOrDecl::Expr => Expr,
-                ExprOrDecl::Decl => Declaration
+                MyItem::Expr => Expr,
+                MyItem::Let => LetBinding,
+                MyItem::Decl => Declaration
             )?;
 
             match stmt {
-                ExprOrDecl::Decl(d) => {
+                MyItem::Decl(d) => {
                     stmts.push(BlockStatement::Decl(d));
                 },
-                ExprOrDecl::Expr(e)
+                MyItem::Let(d) => {
+                    stmts.push(BlockStatement::Let(d));
+                },
+                MyItem::Expr(e)
                     if ctx.tokens.peek_eq(TokenType::SemiColon)?.is_some() =>
                 {
                     stmts.push(BlockStatement::Expr(SemiedExpr {
@@ -2080,7 +2150,7 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
                     }));
                 },
                 // Expr with no semi colon = end of block
-                ExprOrDecl::Expr(e) => {
+                MyItem::Expr(e) => {
                     last_expr = Some(Box::new(e));
                     break
                 }
@@ -2369,7 +2439,7 @@ mod tests {
         let test = 5;
         "#;
         let mut ctx = ParseContext::from_src("<test>", src);
-        let expr = LetDeclaration::parse(&mut ctx)?;
+        let expr = LetBinding::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "let test = 5;");
 
@@ -2382,7 +2452,7 @@ mod tests {
         let plus a b = a + b;
         "#;
         let mut ctx = ParseContext::from_src("<test>", src);
-        let expr = LetDeclaration::parse(&mut ctx)?;
+        let expr = LetBinding::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "let plus a b = (a + b);");
 
@@ -2399,7 +2469,7 @@ mod tests {
         };
         "#;
         let mut ctx = ParseContext::from_src("<test>", src);
-        let expr = LetDeclaration::parse(&mut ctx)?;
+        let expr = LetBinding::parse(&mut ctx)?;
 
         assert_eq!(format!("{expr}"), "let plus a b = {let c = (a + b);(a * c)};");
 
