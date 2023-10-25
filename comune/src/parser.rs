@@ -130,15 +130,12 @@ pub mod ast {
         Times(&'a InfixOp<'a, Expr<'a>, StarToken<'a>, Expr<'a>>),
         Divide(&'a InfixOp<'a, Expr<'a>, FSlashToken<'a>, Expr<'a>>),
         LetBinding(&'a LetBinding<'a>),
-        ConstDeclaration(&'a ConstDeclaration<'a>),
-        MachineDeclaration(&'a MachineDeclaration<'a>),
+        MachineDeclaration(&'a MachineTypeExpression<'a>),
         StateDeclaration(&'a StateDeclaration<'a>),
         StateTransition(&'a StateTransition<'a>),
         Dyn(&'a Dyn<'a>),
         Data(&'a Data<'a>),
         DataItem(&'a DataItem<'a>),
-        On(&'a On<'a>),
-        Parameter(&'a Parameter<'a>),
         ParentisedExpr(&'a ParentisedExpr<'a>),
         SemiedExpr(&'a SemiedExpr<'a>),
         BlockExpr(&'a BlockExpr<'a>),
@@ -237,43 +234,10 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
-    pub struct ConstDeclaration<'a> {
-        pub id: NodeId,
-
-        pub const_: ConstToken<'a>,
-        pub name: IdenToken<'a>,
-        pub eq: EqualToken<'a>,
-        pub expr: Expr<'a>,
-        pub semi: SemiColonToken<'a>,
-    }
-
-    impl<'a> Node<'a> for ConstDeclaration<'a> {
-        fn id(&self) -> NodeId {
-            self.id
-        }
-
-        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            self.expr.container_visit(v)
-        }
-    }
-
-    impl<'a> Display for ConstDeclaration<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.const_)?;
-            write!(f, " {}", self.name)?;
-            write!(f, " {}", self.eq)?;
-            write!(f, " {}", self.expr)?;
-            write!(f, "{}", self.semi)?;
-
-            Ok(())
-        }
-    }
-
-    /// A Machine declaration
+    /// A Machine type
     /// Ex:
     /// ```comune
-    /// machine test {
+    /// machine {
     ///     initial state init {
     ///        [...]
     ///     }
@@ -284,17 +248,16 @@ pub mod ast {
     /// }
     /// ```
     #[derive(Debug)]
-    pub struct MachineDeclaration<'a> {
+    pub struct MachineTypeExpression<'a> {
         pub id: NodeId,
 
         pub machine_token: MachineToken<'a>,
-        pub iden: IdenToken<'a>,
         pub open: CurlyOpenToken<'a>,
         pub items: Box<[MachineItem<'a>]>,
         pub close: CurlyCloseToken<'a>,
     }
 
-    impl<'a> Node<'a> for MachineDeclaration<'a> {
+    impl<'a> Node<'a> for MachineTypeExpression<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
@@ -306,10 +269,9 @@ pub mod ast {
         }
     }
 
-    impl<'a> Display for MachineDeclaration<'a> {
+    impl<'a> Display for MachineTypeExpression<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{} ", self.machine_token)?;
-            write!(f, "{} ", self.iden)?;
             write!(f, "{}", self.open)?;
             for i in self.items.iter() {
                 write!(f, " {}", i)?;
@@ -323,14 +285,14 @@ pub mod ast {
     /// Items that go into a Machine
     #[derive(Debug, TryAs)]
     pub enum MachineItem<'a> {
-        Declaration(Declaration<'a>),
+        Let(LetBinding<'a>),
         State(StateDeclaration<'a>),
     }
 
     impl<'a> NodeContainer<'a> for MachineItem<'a> {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::Declaration(e) => e.container_visit(v),
+                Self::Let(e) => e.container_visit(v),
                 Self::State(e) => e.container_visit(v),
             }
         }
@@ -339,7 +301,7 @@ pub mod ast {
     impl<'a> Display for MachineItem<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                MachineItem::Declaration(s) => write!(f, "{s}")?,
+                MachineItem::Let(s) => write!(f, "{s}")?,
                 MachineItem::State(s) => write!(f, "{s}")?,
             }
 
@@ -392,21 +354,19 @@ pub mod ast {
     /// Itemss that go into a State
     #[derive(Debug, TryAs)]
     pub enum StateItem<'a> {
-        Declaration(Declaration<'a>),
+        Let(LetBinding<'a>),
         Transition(StateTransition<'a>),
         Dyn(Dyn<'a>),
         Data(Data<'a>),
-        On(On<'a>),
     }
 
     impl<'a> NodeContainer<'a> for StateItem<'a> {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::Declaration(e) => e.container_visit(v),
+                Self::Let(e) => e.container_visit(v),
                 Self::Transition(e) => e.container_visit(v),
                 Self::Dyn(e) => e.container_visit(v),
                 Self::Data(e) => e.container_visit(v),
-                Self::On(e) => e.container_visit(v),
             }
         }
     }
@@ -414,11 +374,10 @@ pub mod ast {
     impl<'a> Display for StateItem<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                Self::Declaration(e) => write!(f, "{e}")?,
+                Self::Let(e) => write!(f, "{e}")?,
                 Self::Transition(e) => write!(f, "{e}")?,
                 Self::Dyn(e) => write!(f, "{e}")?,
                 Self::Data(e) => write!(f, "{e}")?,
-                Self::On(e) => write!(f, "{e}")?,
             }
 
             Ok(())
@@ -460,33 +419,6 @@ pub mod ast {
             Ok(())
         }
     }
-
-    #[derive(Debug, TryAs)]
-    pub enum Declaration<'a> {
-        Machine(MachineDeclaration<'a>),
-        Const(ConstDeclaration<'a>),
-    }
-
-    impl<'a> NodeContainer<'a> for Declaration<'a> {
-        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            match self {
-                Self::Machine(e) => e.container_visit(v),
-                Self::Const(e) => e.container_visit(v),
-            }
-        }
-    }
-    
-    impl<'a> Display for Declaration<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::Machine(m) => write!(f, "{m}")?,
-                Self::Const(m) => write!(f, "{m}")?,
-            }
-
-            Ok(())
-        }
-    }
-
 
     /// A dynamic statement
     #[derive(Debug)]
@@ -567,7 +499,7 @@ pub mod ast {
 
         pub mutability: Option<MutToken<'a>>,
         pub iden: IdenToken<'a>,
-        pub ty: Type<'a>,
+        pub ty: Expr<'a>,
     }
 
     impl<'a> Node<'a> for DataItem<'a> {
@@ -586,84 +518,6 @@ pub mod ast {
             write!(f, "{} {}",
                 self.iden, self.ty
             )?;
-
-            Ok(())
-        }
-    }
-
-    /// A 'on' statement
-    #[derive(Debug)]
-    pub struct On<'a> {
-        pub id: NodeId,
-
-        pub on: OnToken<'a>,
-        pub iden: IdenToken<'a>,
-        pub paren_open: ParenOpenToken<'a>,
-        pub params: SeparatedList<'a, ParenCloseToken<'a>, ComaToken<'a>, Parameter<'a>>,
-        pub paren_close: ParenCloseToken<'a>,
-        pub body: BlockExpr<'a>,
-    }
-
-    impl<'a> Node<'a> for On<'a> {
-        fn id(&self) -> NodeId {
-            self.id
-        }
-
-        fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            self.params.container_visit(v);
-            self.body.container_visit(v);
-        }
-    }
-
-    impl<'a> Display for On<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{} {} {}{}{} {}",
-                self.on, self.iden, self.paren_open, self.params,
-                self.paren_close, self.body
-            )?;
-
-            Ok(())
-        }
-    }
-
-    /// A parameter of a function / 'on' statement
-    #[derive(Debug)]
-    pub struct Parameter<'a> {
-        pub id: NodeId,
-
-        pub iden: IdenToken<'a>,
-        pub ty: Type<'a>,
-    }
-
-    impl<'a> Node<'a> for Parameter<'a> {
-        fn id(&self) -> NodeId {
-            self.id
-        }
-
-        fn walk<V: AstVisitor<'a>>(&'a self, _v: &mut V) { }
-    }
-
-    impl<'a> Display for Parameter<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{} {}",
-                self.iden, self.ty
-            )?;
-
-            Ok(())
-        }
-    }
-
-    /// A Type
-    #[derive(Debug, TryAs)]
-    pub enum Type<'a> {
-        Named(IdenToken<'a>),
-    }
-
-    impl<'a> Display for Type<'a> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Type::Named(n) => write!(f, "{n}")?,
-            }
 
             Ok(())
         }
@@ -767,7 +621,6 @@ pub mod ast {
     /// Items that goes into a BlockExpr
     #[derive(TryAs, Debug)]
     pub enum BlockItem<'a> {
-        Decl(Declaration<'a>),
         Let(LetBinding<'a>),
         Expr(SemiedExpr<'a>),
     }
@@ -775,7 +628,6 @@ pub mod ast {
     impl<'a> NodeContainer<'a> for BlockItem<'a> {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Self::Decl(e) => e.container_visit(v),
                 Self::Let(e) => e.container_visit(v),
                 Self::Expr(e) => e.container_visit(v),
             }
@@ -785,7 +637,6 @@ pub mod ast {
     impl<'a> Display for BlockItem<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                Self::Decl(e) => write!(f, "{e}")?,
                 Self::Let(e) => write!(f, "{e}")?,
                 Self::Expr(e) => write!(f, "{e}")?,
             }
@@ -1105,10 +956,12 @@ pub mod ast {
 
         Parentised(ParentisedExpr<'a>),
         Block(BlockExpr<'a>),
-        Id(IdenExpr<'a>),
+        Ident(IdenExpr<'a>),
         If(IfExpr<'a>),
         While(WhileExpr<'a>),
         Literal(AnyLiteral<'a>),
+
+        Machine(MachineTypeExpression<'a>),
     }
 
     impl<'a> NodeContainer<'a> for Expr<'a> {
@@ -1129,10 +982,11 @@ pub mod ast {
                 Expr::FunctionApplication(e) => e.container_visit(v),
                 Expr::Parentised(e) => e.container_visit(v),
                 Expr::Block(e) => e.container_visit(v),
-                Expr::Id(e) => e.container_visit(v),
+                Expr::Ident(e) => e.container_visit(v),
                 Expr::If(e) => e.container_visit(v),
                 Expr::While(e) => e.container_visit(v),
                 Expr::Literal(e) => e.container_visit(v),
+                Expr::Machine(e) => e.container_visit(v),
             }
         }
     }
@@ -1142,7 +996,7 @@ pub mod ast {
             match self {
                 Self::Parentised(e) => write!(f, "{e}")?,
                 Self::Block(e) => write!(f, "{e}")?,
-                Self::Id(e) => write!(f, "{e}")?,
+                Self::Ident(e) => write!(f, "{e}")?,
                 Self::If(e) => write!(f, "{e}")?,
                 Self::While(e) => write!(f, "{e}")?,
                 Self::Literal(e) => write!(f, "{e}")?,
@@ -1160,6 +1014,30 @@ pub mod ast {
                 Self::Times(e) => write!(f, "({e})")?,
                 Self::Divide(e) => write!(f, "({e})")?,
                 Self::FunctionApplication(e) => write!(f, "({e})")?,
+                Self::Machine(e) => write!(f, "({e})")?,
+            }
+
+            Ok(())
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum FileItem<'a> {
+        Let(LetBinding<'a>),
+    }
+
+    impl<'a> NodeContainer<'a> for FileItem<'a> {
+        fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+            match self {
+                FileItem::Let(l) => l.container_visit(v),
+            }
+        }
+    }
+
+    impl<'a> Display for FileItem<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                FileItem::Let(l) => write!(f, "{l}")?,
             }
 
             Ok(())
@@ -1170,7 +1048,7 @@ pub mod ast {
     pub struct File<'a> {
         pub id: NodeId,
 
-        pub declarations: Box<[Declaration<'a>]>,
+        pub declarations: Box<[FileItem<'a>]>,
         pub eof: EOFToken<'a>,
     }
 
@@ -1237,27 +1115,6 @@ macro_rules! l_one {
             )+
 
             _ => unreachable!(),
-        }
-    };
-}
-
-macro_rules! match_token {
-    (
-        $ctx: expr;
-
-        $($t:ident @ $x:ident => $b:block)+
-    ) => {
-        match $ctx.tokens.expecteds([
-            $($x::KIND),+
-        ].into_iter())? {
-            $(
-            g @ GenericToken { kind, .. } if kind == $x::KIND => {
-                let $t = $x::from_generic(g).unwrap();
-                $b
-            }
-            )+
-
-            _ => unreachable!()
         }
     };
 }
@@ -1371,6 +1228,16 @@ impl<'a, T: KnownToken<'a>> Parsable<'a> for T {
     }
 }
 
+impl<'a, T: KnownToken<'a>> Parsable<'a> for Option<T> {
+    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
+        std::iter::once(T::KIND)
+    }
+
+    fn parse(ctx: &mut ParseContext<'a>) -> Result<Option<T>, ParserError> {
+        Ok(ctx.tokens.get_eq()?)
+    }
+}
+
 impl<'a, End, Sep, T> Parsable<'a> for SeparatedList<'a, End, Sep, T>
     where End: KnownToken<'a>,
           Sep: KnownToken<'a>,
@@ -1411,14 +1278,13 @@ impl<'a, End, Sep, T> Parsable<'a> for SeparatedList<'a, End, Sep, T>
     }
 }
 
-impl<'a> Parsable<'a> for MachineDeclaration<'a> {
+impl<'a> Parsable<'a> for MachineTypeExpression<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         [TokenType::Machine].into_iter()
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let machine_token = ctx.tokens.expected::<MachineToken>()?;
-        let iden = ctx.tokens.expected::<IdenToken>()?;
         let open = parse(ctx)?;
         let mut items = vec![];
         while ctx.tokens.peek_eq(TokenType::CurlyClose)?.is_none() {
@@ -1426,11 +1292,10 @@ impl<'a> Parsable<'a> for MachineDeclaration<'a> {
         }
         let close = parse(ctx)?;
 
-        Ok(MachineDeclaration {
+        Ok(MachineTypeExpression {
             id: ctx.new_id(),
 
             machine_token,
-            iden,
             open,
             items: items.into_boxed_slice(),
             close,
@@ -1441,14 +1306,14 @@ impl<'a> Parsable<'a> for MachineDeclaration<'a> {
 impl<'a> Parsable<'a> for MachineItem<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            Declaration,
+            LetBinding,
             StateDeclaration
         )
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         l_one!(ctx;
-            Self::Declaration => Declaration,
+            Self::Let => LetBinding,
             Self::State => StateDeclaration
         )
     }
@@ -1490,21 +1355,18 @@ impl<'a> Parsable<'a> for StateDeclaration<'a> {
 impl<'a> Parsable<'a> for StateItem<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            Declaration,
+            LetBinding,
             StateTransition,
             Data,
-            On,
             Dyn
         )
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         l_one!(ctx;
-
-            Self::Declaration => Declaration,
+            Self::Let => LetBinding,
             Self::Transition => StateTransition,
             Self::Data => Data,
-            Self::On => On,
             Self::Dyn => Dyn
         )
     }
@@ -1560,48 +1422,6 @@ impl<'a> Parsable<'a> for LetBinding<'a> {
             expr,
             semi,
         })
-    }
-}
-
-impl<'a> Parsable<'a> for ConstDeclaration<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            ConstToken
-        )
-    }
-
-    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        let const_ = parse(ctx)?;
-        let name = parse(ctx)?;
-        let eq = parse(ctx)?;
-        let expr = parse(ctx)?;
-        let semi = parse(ctx)?;
-
-        Ok(Self {
-            id: ctx.new_id(),
-
-            const_,
-            name,
-            eq,
-            expr,
-            semi,
-        })
-    }
-}
-
-impl<'a> Parsable<'a> for Declaration<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            MachineDeclaration,
-            ConstDeclaration
-        )
-    }
-
-    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        l_one!(ctx;
-            Self::Machine => MachineDeclaration,
-            Self::Const => ConstDeclaration
-        )
     }
 }
 
@@ -1664,9 +1484,9 @@ impl<'a> Parsable<'a> for DataItem<'a> {
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        let mutability = ctx.tokens.get_eq::<MutToken>()?;
-        let iden = ctx.tokens.expected::<IdenToken>()?;
-        let ty = Type::parse(ctx)?;
+        let mutability = ctx.tokens.get_eq()?;
+        let iden = parse(ctx)?;
+        let ty = parse(ctx)?;
 
         Ok(Self {
             id: ctx.new_id(),
@@ -1742,34 +1562,6 @@ impl<'a> Parsable<'a> for FalseLiteral<'a> {
     }
 }
 
-impl<'a> Parsable<'a> for On<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            OnToken
-        )
-    }
-
-    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        let on = ctx.tokens.expected::<OnToken>()?;
-        let iden = ctx.tokens.expected::<IdenToken>()?;
-        let paren_open = ctx.tokens.expected::<ParenOpenToken>()?;
-        let params = SeparatedList::parse(ctx)?;
-        let paren_close = ctx.tokens.expected::<ParenCloseToken>()?;
-        let body = BlockExpr::parse(ctx)?;
-
-        Ok(Self {
-            id: ctx.new_id(),
-
-            on,
-            iden,
-            paren_open,
-            params,
-            paren_close,
-            body,
-        })
-    }
-}
-
 impl<'a> Parsable<'a> for AnyLiteral<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
@@ -1812,10 +1604,11 @@ impl<'a> Expr<'a> {
         l_one!(ctx;
             Self::Parentised => ParentisedExpr,
             Self::Block => BlockExpr,
-            Self::Id => IdenExpr,
+            Self::Ident => IdenExpr,
             Self::If => IfExpr,
             Self::While => WhileExpr,
-            Self::Literal => AnyLiteral
+            Self::Literal => AnyLiteral,
+            Self::Machine => MachineTypeExpression
         )
     }
 
@@ -1940,7 +1733,8 @@ impl<'a> Parsable<'a> for Expr<'a> {
             IdenExpr,
             IfExpr,
             WhileExpr,
-            AnyLiteral
+            AnyLiteral,
+            MachineTypeExpression
         )
     }
 
@@ -2002,10 +1796,9 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let open = parse(ctx)?;
 
-        enum MyItem<'a> {
+        enum PreItem<'a> {
             Expr(Expr<'a>),
             Let(LetBinding<'a>),
-            Decl(Declaration<'a>),
         }
 
         let mut items = Vec::new();
@@ -2013,19 +1806,15 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
 
         while ctx.tokens.peek_eq(TokenType::CurlyClose)?.is_none() {
             let item = l_one!(ctx;
-                MyItem::Expr => Expr,
-                MyItem::Let => LetBinding,
-                MyItem::Decl => Declaration
+                PreItem::Expr => Expr,
+                PreItem::Let => LetBinding
             )?;
 
             match item {
-                MyItem::Decl(d) => {
-                    items.push(BlockItem::Decl(d));
-                },
-                MyItem::Let(d) => {
+                PreItem::Let(d) => {
                     items.push(BlockItem::Let(d));
                 },
-                MyItem::Expr(e)
+                PreItem::Expr(e)
                     if ctx.tokens.peek_eq(TokenType::SemiColon)?.is_some() =>
                 {
                     items.push(BlockItem::Expr(SemiedExpr {
@@ -2036,7 +1825,7 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
                     }));
                 },
                 // Expr with no semi colon = end of block
-                MyItem::Expr(e) => {
+                PreItem::Expr(e) => {
                     last_expr = Some(Box::new(e));
                     break
                 }
@@ -2052,37 +1841,6 @@ impl<'a> Parsable<'a> for BlockExpr<'a> {
             items: items.into_boxed_slice(),
             last_expr,
             close,
-        })
-    }
-}
-
-impl<'a> Parsable<'a> for Type<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            IdenToken
-        )
-    }
-
-    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        l_one!(ctx;
-            Self::Named => IdenToken
-        )
-    }
-}
-
-impl<'a> Parsable<'a> for Parameter<'a> {
-    fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
-        expected!(
-            IdenToken
-        )
-    }
-
-    fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        Ok(Self {
-            id: ctx.new_id(),
-
-            iden: parse(ctx)?,
-            ty: parse(ctx)?,
         })
     }
 }
@@ -2155,7 +1913,7 @@ impl<'a> Parsable<'a> for File<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
             EOFToken,
-            Declaration
+            LetBinding
         )
     }
 
@@ -2163,7 +1921,7 @@ impl<'a> Parsable<'a> for File<'a> {
         let mut decls = vec![];
 
         while ctx.tokens.peek_eq(TokenType::EOF)?.is_none() {
-            decls.push(parse(ctx)?);
+            decls.push(FileItem::Let(parse(ctx)?));
         }
         let eof = ctx.tokens.expected::<EOFToken>()?;
 
@@ -2265,7 +2023,7 @@ mod tests {
     #[test]
     fn machine_curly_full() -> Result<(), Box<dyn Error>> {
         let src = r#"
-        machine name {
+        machine {
             initial state first {
                 data {
                     name string,
@@ -2276,10 +2034,6 @@ mod tests {
                 =increment> second;
 
                 reveived >= 10 -> {};
-
-                on message(sender u32) {
-                    a = 10;
-                }
             }
 
             state second {
@@ -2288,9 +2042,9 @@ mod tests {
         }
         "#;
         let mut ctx = ParseContext::from_src("<test>", src);
-        let expr = MachineDeclaration::parse(&mut ctx)?;
+        let expr = MachineTypeExpression::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "machine name { initial state first { data {name string,id u32,mut received i32} =increment> second; (reveived >= 10) -> {}; on message (sender u32) {(a = 10);} } state second { =decrement> first; } }");
+        assert_eq!(format!("{expr}"), "machine { initial state first { data {name string,id u32,mut received i32} =increment> second; (reveived >= 10) -> {}; } state second { =decrement> first; } }");
 
         Ok(())
     }
@@ -2298,23 +2052,23 @@ mod tests {
     #[test]
     fn machine_in_machine() -> Result<(), Box<dyn Error>> {
         let src = r#"
-        machine name {
-            machine inner {
+        machine {
+            let inner = machine {
 
-            }
+            };
 
             initial state first {
-                machine even_more_inner {
-                }
+                let even_more_inner = machine {
+                };
 
                 data {}
             }
         }
         "#;
         let mut ctx = ParseContext::from_src("<test>", src);
-        let expr = MachineDeclaration::parse(&mut ctx)?;
+        let expr = MachineTypeExpression::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "machine name { machine inner { } initial state first { machine even_more_inner { } data {} } }");
+        assert_eq!(format!("{expr}"), "machine { let inner = (machine { }); initial state first { let even_more_inner = (machine { }); data {} } }");
 
         Ok(())
     }
