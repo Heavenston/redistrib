@@ -277,6 +277,7 @@ tokens!(
     Const(ConstToken, "'const'"),
 
     Iden(IdenToken, "<identifier>"),
+    InfixIden(InfixIdenToken, "<infix_identifier>"),
 
     If(IfToken, "'if'"),
     Else(ElseToken, "'else'"),
@@ -292,11 +293,10 @@ tokens!(
     LineComment(LineCommentToken, "<comment>"),
     BlockComment(BlockCommentToken, "<block_comment>"),
 
+    Equal(EqualToken, "'='"),
     ThinArrow(ThinArrowToken, "'->'"),
     FatArrow(FatArrowToken, "'=>'"),
 
-    VBar(VBarToken, "'|'"),
-    DoubleVBar(DoubleVBarToken, "'||'"),
     FSlash(FSlashToken, "'/'"),
     BSlash(BSlashToken, "'\\'"),
     CurlyOpen(CurlyOpenToken, "'{{'"),
@@ -305,29 +305,20 @@ tokens!(
     ParenClose(ParenCloseToken, "')'"),
     BracketOpen(BracketOpenToken, "'['"),
     BracketClose(BracketCloseToken, "']'"),
-    CaretOpen(CaretOpenToken, "'<'"),
-    CaretOpenEqual(CaretOpenEqualToken, "'<='"),
-    CaretClose(CaretCloseToken, "'>'"),
-    CaretCloseEqual(CaretCloseEqualToken, "'>='"),
     Colon(ColonToken, "':'"),
     Coma(ComaToken, "','"),
     SemiColon(SemiColonToken, "';'"),
     Quote(QuoteToken, "'"),
     DoubleQuote(DoubleQuoteToken, "'\"'"),
-    And(AndToken, "'&'"),
-    DoubleAnd(DoubleAndToken, "'&&'"),
-    Bang(BangToken, "'!'"),
-    QuestionMark(QuestionMarkToken, "'?'"),
-    Dot(DotToken, "'.'"),
-    Plus(PlusToken, "'+'"),
-    Dash(DashToken, "'-'"),
-    Star(StarToken, "'*'"),
-    Equal(EqualToken, "'='"),
-    DoubleEqual(DoubleEqualToken, "'=='")
+    Dot(DotToken, "'.'")
 );
 
-const ID_CHARS_START: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
-const ID_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$";
+const IDENT_CHARS_START: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+const IDENT_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+
+// FIXME: Ocaml forbids these to start with a '=' (why?)
+const INFIX_ID_CHARS_START: &str = "!*+$=%-?|@/#~&^<>.";
+const INFIX_ID_CHARS: &str = "!*+$=%-?|@/#~&^<>.";
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Tokenizer<'a> {
@@ -403,11 +394,11 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn read_id(&mut self) -> Result<TokenType, LexerError> {
-        debug_assert!(ID_CHARS_START.contains(
+        debug_assert!(IDENT_CHARS_START.contains(
             self.peek_char().unwrap_or('\0')
         ));
 
-        match self.take_chars_while(|c, _| ID_CHARS.contains(c)) {
+        match self.take_chars_while(|c, _| IDENT_CHARS.contains(c)) {
             "machine" => Ok(TokenType::Machine),
             "initial" => Ok(TokenType::Initial),
             "state" => Ok(TokenType::State),
@@ -427,6 +418,20 @@ impl<'a> Tokenizer<'a> {
             "false" => Ok(TokenType::False),
 
             _ => Ok(TokenType::Iden),
+        }
+    }
+    
+    fn read_infix_id(&mut self) -> Result<TokenType, LexerError> {
+        debug_assert!(INFIX_ID_CHARS_START.contains(
+            self.peek_char().unwrap_or('\0')
+        ));
+
+        match self.take_chars_while(|c, _| INFIX_ID_CHARS.contains(c)) {
+            "=" => Ok(TokenType::Equal),
+            "=>" => Ok(TokenType::FatArrow),
+            "->" => Ok(TokenType::ThinArrow),
+
+            _ => Ok(TokenType::InfixIden),
         }
     }
 
@@ -503,37 +508,14 @@ impl<'a> Tokenizer<'a> {
             Some('[') => Ok(TokenType::BracketOpen),
             Some(']') => Ok(TokenType::BracketClose),
 
-            Some('<') if self.take_char_if('=') => Ok(TokenType::CaretOpenEqual),
-            Some('<') => Ok(TokenType::CaretOpen),
-
-            Some('>') if self.take_char_if('=') => Ok(TokenType::CaretCloseEqual),
-            Some('>') => Ok(TokenType::CaretClose),
-
-            Some('/') => Ok(TokenType::FSlash),
             Some('\\') => Ok(TokenType::BSlash),
-            Some('!') => Ok(TokenType::Bang),
             Some(':') => Ok(TokenType::Colon),
             Some(';') => Ok(TokenType::SemiColon),
             Some(',') => Ok(TokenType::Coma),
             Some('.') => Ok(TokenType::Dot),
 
-            Some('|') if self.take_char_if('|') => Ok(TokenType::DoubleVBar),
-            Some('|') => Ok(TokenType::VBar),
-
             Some('"') => Ok(TokenType::DoubleQuote),
             Some('\'') => Ok(TokenType::Quote),
-
-            Some('&') if self.take_char_if('&') => Ok(TokenType::DoubleAnd),
-            Some('&') => Ok(TokenType::And),
-
-            Some('?') => Ok(TokenType::QuestionMark),
-            Some('+') => Ok(TokenType::Plus),
-            Some('-') if self.take_char_if('>') => Ok(TokenType::ThinArrow),
-            Some('-') => Ok(TokenType::Dash),
-            Some('*') => Ok(TokenType::Star),
-            Some('=') if self.take_char_if('>') => Ok(TokenType::FatArrow),
-            Some('=') if self.take_char_if('=') => Ok(TokenType::DoubleEqual),
-            Some('=') => Ok(TokenType::Equal),
 
             c => Err(LexerError::UnexpectedCharError {
                 pos: self.peeking_pos().to_static(),
@@ -554,16 +536,13 @@ impl<'a> Tokenizer<'a> {
         let start = self.peeking_pos();
 
         let kind = match ch {
-            None => Ok(TokenType::EOF),
-            Some('#') => Ok(self.read_comment()),
-            Some('"') => self.read_string(),
-            Some(c) if ID_CHARS_START.contains(c) => self.read_id(),
-            Some(c) if c.is_digit(10) => self.read_decimal(),
-            Some(_) => self.read_special(),
-        };
-        let kind = match kind {
-            Ok(o) => o,
-            Err(e) => return Err(e),
+            None => TokenType::EOF,
+            Some('#') => self.read_comment(),
+            Some('"') => self.read_string()?,
+            Some(c) if IDENT_CHARS_START.contains(c) => self.read_id()?,
+            Some(c) if INFIX_ID_CHARS_START.contains(c) => self.read_infix_id()?,
+            Some(c) if c.is_digit(10) => self.read_decimal()?,
+            Some(_) => self.read_special()?,
         };
 
         let len = self.peeking_index - start_chs;
@@ -727,8 +706,9 @@ mod tests {
 
     #[test]
     pub fn simple() {
-        const SRC: &str = "machine -*+-\\ test-test
+        const SRC: &str = "machine - * +-\\ test-test
 then # Bite then
+=- -=
 data on state = 123456 + 031.4 -> 5
         ";
 
@@ -747,7 +727,7 @@ data on state = 123456 + 031.4 -> 5
             }
         }));
         assert_matches!(tokens.get(), Ok(GenericToken {
-            kind: TokenType::Dash,
+            kind: TokenType::InfixIden,
             content: Cow::Borrowed("-"),
             range: SrcRange {
                 start_row: 0, start_col: 8,
@@ -756,17 +736,8 @@ data on state = 123456 + 031.4 -> 5
             }
         }));
         assert_matches!(tokens.get(), Ok(GenericToken {
-            kind: TokenType::Star,
+            kind: TokenType::InfixIden,
             content: Cow::Borrowed("*"),
-            range: SrcRange {
-                start_row: 0, start_col: 9,
-                end_row: 0, end_col: 10,
-                ..
-            }
-        }));
-        assert_matches!(tokens.get(), Ok(GenericToken {
-            kind: TokenType::Plus,
-            content: Cow::Borrowed("+"),
             range: SrcRange {
                 start_row: 0, start_col: 10,
                 end_row: 0, end_col: 11,
@@ -774,11 +745,11 @@ data on state = 123456 + 031.4 -> 5
             }
         }));
         assert_matches!(tokens.get(), Ok(GenericToken {
-            kind: TokenType::Dash,
-            content: Cow::Borrowed("-"),
+            kind: TokenType::InfixIden,
+            content: Cow::Borrowed("+-"),
             range: SrcRange {
-                start_row: 0, start_col: 11,
-                end_row: 0, end_col: 12,
+                start_row: 0, start_col: 12,
+                end_row: 0, end_col: 14,
                 ..
             }
         }));
@@ -786,8 +757,8 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::BSlash,
             content: Cow::Borrowed("\\"),
             range: SrcRange {
-                start_row: 0, start_col: 12,
-                end_row: 0, end_col: 13,
+                start_row: 0, start_col: 14,
+                end_row: 0, end_col: 15,
                 ..
             }
         }));
@@ -795,17 +766,17 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::Iden,
             content: Cow::Borrowed("test"),
             range: SrcRange {
-                start_row: 0, start_col: 14,
-                end_row: 0, end_col: 18,
+                start_row: 0, start_col: 16,
+                end_row: 0, end_col: 20,
                 ..
             }
         }));
         assert_matches!(tokens.get(), Ok(GenericToken {
-            kind: TokenType::Dash,
+            kind: TokenType::InfixIden,
             content: Cow::Borrowed("-"),
             range: SrcRange {
-                start_row: 0, start_col: 18,
-                end_row: 0, end_col: 19,
+                start_row: 0, start_col: 20,
+                end_row: 0, end_col: 21,
                 ..
             }
         }));
@@ -813,8 +784,8 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::Iden,
             content: Cow::Borrowed("test"),
             range: SrcRange {
-                start_row: 0, start_col: 19,
-                end_row: 0, end_col: 23,
+                start_row: 0, start_col: 21,
+                end_row: 0, end_col: 25,
                 ..
             }
         }));
@@ -838,10 +809,27 @@ data on state = 123456 + 031.4 -> 5
         }));
 
         assert_matches!(tokens.get(), Ok(GenericToken {
+            kind: TokenType::InfixIden,
+            content: Cow::Borrowed("=-"),
+            range: SrcRange {
+                start_row: 2, start_col: 0,
+                ..
+            }
+        }));
+        assert_matches!(tokens.get(), Ok(GenericToken {
+            kind: TokenType::InfixIden,
+            content: Cow::Borrowed("-="),
+            range: SrcRange {
+                start_row: 2, start_col: 3,
+                ..
+            }
+        }));
+
+        assert_matches!(tokens.get(), Ok(GenericToken {
             kind: TokenType::Data,
             content: Cow::Borrowed("data"),
             range: SrcRange {
-                start_row: 2, start_col: 0,
+                start_row: 3, start_col: 0,
                 ..
             }
         }));
@@ -849,7 +837,7 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::On,
             content: Cow::Borrowed("on"),
             range: SrcRange {
-                start_row: 2, start_col: 5,
+                start_row: 3, start_col: 5,
                 ..
             }
         }));
@@ -857,7 +845,7 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::State,
             content: Cow::Borrowed("state"),
             range: SrcRange {
-                start_row: 2, start_col: 8,
+                start_row: 3, start_col: 8,
                 ..
             }
         }));
@@ -865,7 +853,7 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::Equal,
             content: Cow::Borrowed("="),
             range: SrcRange {
-                start_row: 2, start_col: 14,
+                start_row: 3, start_col: 14,
                 ..
             }
         }));
@@ -873,15 +861,15 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::DecimalLiteral,
             content: Cow::Borrowed("123456"),
             range: SrcRange {
-                start_row: 2, start_col: 16,
+                start_row: 3, start_col: 16,
                 ..
             }
         }));
         assert_matches!(tokens.get(), Ok(GenericToken {
-            kind: TokenType::Plus,
+            kind: TokenType::InfixIden,
             content: Cow::Borrowed("+"),
             range: SrcRange {
-                start_row: 2, start_col: 23,
+                start_row: 3, start_col: 23,
                 ..
             }
         }));
@@ -889,7 +877,7 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::DecimalLiteral,
             content: Cow::Borrowed("031.4"),
             range: SrcRange {
-                start_row: 2, start_col: 25,
+                start_row: 3, start_col: 25,
                 ..
             }
         }));
@@ -897,7 +885,7 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::ThinArrow,
             content: Cow::Borrowed("->"),
             range: SrcRange {
-                start_row: 2, start_col: 31,
+                start_row: 3, start_col: 31,
                 ..
             }
         }));
@@ -905,7 +893,7 @@ data on state = 123456 + 031.4 -> 5
             kind: TokenType::DecimalLiteral,
             content: Cow::Borrowed("5"),
             range: SrcRange {
-                start_row: 2, start_col: 34,
+                start_row: 3, start_col: 34,
                 ..
             }
         }));
