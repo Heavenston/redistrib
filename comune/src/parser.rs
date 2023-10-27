@@ -911,8 +911,8 @@ pub mod ast {
     pub struct FunctionApplicationExpr<'a> {
         pub id: NodeId,
 
-        pub expr: Box<Expr<'a>>,
-        pub arguments: Box<[Expr<'a>]>,
+        pub callee: Box<Expr<'a>>,
+        pub argument: Box<Expr<'a>>,
     }
 
     impl<'a> Node<'a> for FunctionApplicationExpr<'a> {
@@ -921,20 +921,15 @@ pub mod ast {
         }
 
         fn walk<V: AstVisitor<'a>>(&'a self, v: &mut V) {
-            self.expr.container_visit(v);
-            for e in self.arguments.iter() {
-                e.container_visit(v);
-            }
+            self.callee.container_visit(v);
+            self.argument.container_visit(v);
         }
     }
 
     impl<'a> Display for FunctionApplicationExpr<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.expr)?;
-
-            for arg in self.arguments.iter() {
-                write!(f, " {arg}")?;
-            }
+            write!(f, "{}", self.callee)?;
+            write!(f, " {}", self.argument)?;
 
             Ok(())
         }
@@ -1733,24 +1728,19 @@ impl<'a> Expr<'a> {
             );
 
             // Function calls after this
-            if precedence != Self::FUNCTION_APPLICATION_PRECEDENCE {
-                break;
+            if precedence == Self::FUNCTION_APPLICATION_PRECEDENCE &&
+               Expr::expects(&ctx.tokens.peek()?.kind)
+            {
+                left = Expr::FunctionApplication(FunctionApplicationExpr {
+                    callee: Box::new(left),
+                    argument: Box::new(Expr::expr_parse(ctx, precedence + 1)?),
+                    id: ctx.new_id(),
+                });
+
+                continue;
             }
 
-            // Not an expression -> no function application
-            if !Expr::expects(&ctx.tokens.peek()?.kind) {
-                break;
-            }
-
-            let mut arguments = vec![];
-            while Expr::expects(&ctx.tokens.peek()?.kind) {
-                arguments.push(Expr::expr_parse(ctx, precedence + 1)?);
-            }
-            left = Expr::FunctionApplication(FunctionApplicationExpr {
-                id: ctx.new_id(),
-                expr: Box::new(left),
-                arguments: arguments.into_boxed_slice(),
-            });
+            break;
         }
         return Ok(left);
     }
@@ -1800,19 +1790,13 @@ impl<'a> Parsable<'a> for FunctionApplicationExpr<'a> {
     }
 
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
-        let expr = Expr::expr_parse(ctx, Expr::FUNCTION_APPLICATION_PRECEDENCE)?;
-
-        let mut arguments = vec![];
-        while Expr::expects(&ctx.tokens.peek()?.kind) {
-            arguments.push(
-                Expr::expr_parse(ctx, Expr::FUNCTION_APPLICATION_PRECEDENCE)?
-            );
-        }
+        let callee = Expr::expr_parse(ctx, Expr::FUNCTION_APPLICATION_PRECEDENCE)?;
+        let argument = Expr::expr_parse(ctx, Expr::FUNCTION_APPLICATION_PRECEDENCE)?;
 
         Ok(Self {
             id: ctx.new_id(),
-            expr: Box::new(expr),
-            arguments: arguments.into_boxed_slice(),
+            callee: Box::new(callee),
+            argument: Box::new(argument),
         })
     }
 }
@@ -2046,7 +2030,7 @@ mod tests {
         let mut ctx = ParseContext::from_src("<test>", "(this_is_a_function 5 (5 5 5) (10 + 10))");
         let expr = Expr::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "((this_is_a_function 5 ((5 5 5)) ((10 + 10))))");
+        assert_eq!(format!("{expr}"), "((((this_is_a_function 5) (((5 5) 5))) ((10 + 10))))");
 
         Ok(())
     }
