@@ -124,6 +124,14 @@ pub mod ast {
                 $($f($type)),*
             }
 
+            impl<'a> NodeContainer<'a> for $name<'a> {
+                fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
+                    match self {
+                        $($name::$f(d) => d.container_visit(v),)*
+                    }
+                }
+            }
+
             impl<'a> $name<'a> {
                 pub fn kind(&self) -> $kind_name {
                     match self {
@@ -148,20 +156,9 @@ pub mod ast {
     }
 
     any_node!(AnyNodeKind; AnyNodeRef;
-        Assignment(&'a InfixOp<'a, Expr<'a>, EqualToken<'a>, Expr<'a>>),
-        BooleanOr(&'a InfixOp<'a, Expr<'a>, DoubleVBarToken<'a>, Expr<'a>>),
-        BooleanAnd(&'a InfixOp<'a, Expr<'a>, DoubleAndToken<'a>, Expr<'a>>),
-        Equality(&'a InfixOp<'a, Expr<'a>, DoubleEqualToken<'a>, Expr<'a>>),
-        Greater(&'a InfixOp<'a, Expr<'a>, CaretCloseToken<'a>, Expr<'a>>),
-        GreaterEqual(&'a InfixOp<'a, Expr<'a>, CaretCloseEqualToken<'a>, Expr<'a>>),
-        Lower(&'a InfixOp<'a, Expr<'a>, CaretOpenToken<'a>, Expr<'a>>),
-        LowerEqual(&'a InfixOp<'a, Expr<'a>, CaretOpenEqualToken<'a>, Expr<'a>>),
-        Plus(&'a InfixOp<'a, Expr<'a>, PlusToken<'a>, Expr<'a>>),
-        Minus(&'a InfixOp<'a, Expr<'a>, DashToken<'a>, Expr<'a>>),
-        Times(&'a InfixOp<'a, Expr<'a>, StarToken<'a>, Expr<'a>>),
-        Divide(&'a InfixOp<'a, Expr<'a>, FSlashToken<'a>, Expr<'a>>),
+        Infix(&'a InfixOp<'a>),
         LetBinding(&'a LetBinding<'a>),
-        MachineDeclaration(&'a MachineTypeExpression<'a>),
+        MachineTypeExpression(&'a MachineTypeExpression<'a>),
         StateDeclaration(&'a StateDeclaration<'a>),
         StateTransition(&'a StateTransition<'a>),
         Dyn(&'a Dyn<'a>),
@@ -424,9 +421,8 @@ pub mod ast {
     pub struct StateTransition<'a> {
         pub id: NodeId,
 
-        pub equal: EqualToken<'a>,
+        pub arrow: FatArrowToken<'a>,
         pub name_id: IdenToken<'a>,
-        pub caret_close: CaretCloseToken<'a>,
         pub target_id: IdenToken<'a>,
         pub semi: SemiColonToken<'a>,
     }
@@ -441,10 +437,9 @@ pub mod ast {
 
     impl<'a> Display for StateTransition<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.equal)?;
-            write!(f, "{}", self.name_id)?;
-            write!(f, "{} ", self.caret_close)?;
-            write!(f, "{}", self.target_id)?;
+            write!(f, "{}", self.arrow)?;
+            write!(f, " {}", self.name_id)?;
+            write!(f, " {}", self.target_id)?;
             write!(f, "{}", self.semi)?;
 
             Ok(())
@@ -556,21 +551,15 @@ pub mod ast {
 
     /// Operator in the infix form
     #[derive(Debug)]
-    pub struct InfixOp<'a, Left, Op: KnownToken<'a>, Right> {
+    pub struct InfixOp<'a> {
         pub id: NodeId,
 
-        pub left: Box<Left>,
-        pub op: Op,
-        pub right: Box<Right>,
-        pub p: PhantomData<*const &'a ()>,
+        pub left: Box<Expr<'a>>,
+        pub op: InfixIdenToken<'a>,
+        pub right: Box<Expr<'a>>,
     }
 
-    impl<'a, Left, Op, Right> Node<'a> for InfixOp<'a, Left, Op, Right>
-        where Left: 'a + NodeContainer<'a>,
-              Op: 'a + KnownToken<'a>,
-              Right: 'a + NodeContainer<'a>,
-              AnyNodeRef<'a>: From<&'a Self>,
-    {
+    impl<'a> Node<'a> for InfixOp<'a> {
         fn id(&self) -> NodeId {
             self.id
         }
@@ -581,11 +570,7 @@ pub mod ast {
         }
     }
 
-    impl<'a, Left, Op, Right> Display for InfixOp<'a, Left, Op, Right>
-        where Left: Display,
-              Op: KnownToken<'a> + Display,
-              Right: Display
-    {
+    impl<'a> Display for InfixOp<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "{}", self.left)?;
             write!(f, " {} ", self.op)?;
@@ -960,23 +945,7 @@ pub mod ast {
     /// Has the BooleanOr binary operator
     #[derive(Debug, TryAs)]
     pub enum Expr<'a> {
-        Assignment(InfixOp<'a, Expr<'a>, EqualToken<'a>, Expr<'a>>),
-
-        BooleanOr(InfixOp<'a, Expr<'a>, DoubleVBarToken<'a>, Expr<'a>>),
-
-        BooleanAnd(InfixOp<'a, Expr<'a>, DoubleAndToken<'a>, Expr<'a>>),
-
-        Equality(InfixOp<'a, Expr<'a>, DoubleEqualToken<'a>, Expr<'a>>),
-        Greater(InfixOp<'a, Expr<'a>, CaretCloseToken<'a>, Expr<'a>>),
-        GreaterEqual(InfixOp<'a, Expr<'a>, CaretCloseEqualToken<'a>, Expr<'a>>),
-        Lower(InfixOp<'a, Expr<'a>, CaretOpenToken<'a>, Expr<'a>>),
-        LowerEqual(InfixOp<'a, Expr<'a>, CaretOpenEqualToken<'a>, Expr<'a>>),
-
-        Plus(InfixOp<'a, Expr<'a>, PlusToken<'a>, Expr<'a>>),
-        Minus(InfixOp<'a, Expr<'a>, DashToken<'a>, Expr<'a>>),
-
-        Times(InfixOp<'a, Expr<'a>, StarToken<'a>, Expr<'a>>),
-        Divide(InfixOp<'a, Expr<'a>, FSlashToken<'a>, Expr<'a>>),
+        Infix(InfixOp<'a>),
 
         FunctionApplication(FunctionApplicationExpr<'a>),
 
@@ -993,25 +962,17 @@ pub mod ast {
     impl<'a> NodeContainer<'a> for Expr<'a> {
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V) {
             match self {
-                Expr::Assignment(e) => e.container_visit(v),
-                Expr::BooleanOr(e) => e.container_visit(v),
-                Expr::BooleanAnd(e) => e.container_visit(v),
-                Expr::Equality(e) => e.container_visit(v),
-                Expr::Greater(e) => e.container_visit(v),
-                Expr::GreaterEqual(e) => e.container_visit(v),
-                Expr::Lower(e) => e.container_visit(v),
-                Expr::LowerEqual(e) => e.container_visit(v),
-                Expr::Plus(e) => e.container_visit(v),
-                Expr::Minus(e) => e.container_visit(v),
-                Expr::Times(e) => e.container_visit(v),
-                Expr::Divide(e) => e.container_visit(v),
+                Expr::Infix(e) => e.container_visit(v),
+
                 Expr::FunctionApplication(e) => e.container_visit(v),
+
                 Expr::Parentised(e) => e.container_visit(v),
                 Expr::Block(e) => e.container_visit(v),
                 Expr::Ident(e) => e.container_visit(v),
                 Expr::If(e) => e.container_visit(v),
                 Expr::While(e) => e.container_visit(v),
                 Expr::Literal(e) => e.container_visit(v),
+
                 Expr::Machine(e) => e.container_visit(v),
             }
         }
@@ -1027,18 +988,7 @@ pub mod ast {
                 Self::While(e) => write!(f, "{e}")?,
                 Self::Literal(e) => write!(f, "{e}")?,
 
-                Self::Assignment(e) => write!(f, "({e})")?,
-                Self::BooleanOr(e) => write!(f, "({e})")?,
-                Self::BooleanAnd(e) => write!(f, "({e})")?,
-                Self::Equality(e) => write!(f, "({e})")?,
-                Self::Greater(e) => write!(f, "({e})")?,
-                Self::GreaterEqual(e) => write!(f, "({e})")?,
-                Self::Lower(e) => write!(f, "({e})")?,
-                Self::LowerEqual(e) => write!(f, "({e})")?,
-                Self::Plus(e) => write!(f, "({e})")?,
-                Self::Minus(e) => write!(f, "({e})")?,
-                Self::Times(e) => write!(f, "({e})")?,
-                Self::Divide(e) => write!(f, "({e})")?,
+                Self::Infix(e) => write!(f, "({e})")?,
                 Self::FunctionApplication(e) => write!(f, "({e})")?,
                 Self::Machine(e) => write!(f, "({e})")?,
             }
@@ -1401,7 +1351,7 @@ impl<'a> Parsable<'a> for StateItem<'a> {
 impl<'a> Parsable<'a> for StateTransition<'a> {
     fn expected_first() -> impl Iterator<Item = TokenType> + Clone {
         expected!(
-            EqualToken
+            FatArrowToken
         )
     }
 
@@ -1409,9 +1359,8 @@ impl<'a> Parsable<'a> for StateTransition<'a> {
         Ok(StateTransition {
             id: ctx.new_id(),
 
-            equal: parse(ctx)?,
+            arrow: parse(ctx)?,
             name_id: parse(ctx)?,
-            caret_close: parse(ctx)?,
             target_id: parse(ctx)?,
             semi: parse(ctx)?,
         })
@@ -1638,27 +1587,25 @@ impl<'a> Expr<'a> {
         )
     }
 
-    const ASSIGNMENT_PRECEDENCE: usize = 0;
+    const BOOLEAN_OR_PRECEDENCE: usize = 0;
 
-    const BOOLEAN_OR_PRECEDENCE: usize = 1;
+    const BOOLEAN_AND_PRECEDENCE: usize = 1;
 
-    const BOOLEAN_AND_PRECEDENCE: usize = 2;
+    const EQUALITY_PRECEDENCE: usize = 2;
+    const LOWER_PRECEDENCE: usize = 2;
+    const LOWER_EQUAL_PRECEDENCE: usize = 2;
+    const GREATER_PRECEDENCE: usize = 2;
+    const GREATER_EQUAL_PRECEDENCE: usize = 2;
 
-    const EQUALITY_PRECEDENCE: usize = 3;
-    const LOWER_PRECEDENCE: usize = 3;
-    const LOWER_EQUAL_PRECEDENCE: usize = 3;
-    const GREATER_PRECEDENCE: usize = 3;
-    const GREATER_EQUAL_PRECEDENCE: usize = 3;
+    const PLUS_PRECEDENCE: usize = 3;
+    const MINUS_PRECEDENCE: usize = 3;
 
-    const PLUS_PRECEDENCE: usize = 4;
-    const MINUS_PRECEDENCE: usize = 4;
+    const TIMES_PRECEDENCE: usize = 4;
+    const DIVIDE_PRECEDENCE: usize = 4;
 
-    const TIMES_PRECEDENCE: usize = 5;
-    const DIVIDE_PRECEDENCE: usize = 5;
+    const FUNCTION_APPLICATION_PRECEDENCE: usize = 5;
 
-    const FUNCTION_APPLICATION_PRECEDENCE: usize = 6;
-
-    const BOTTOM_PRECEDENCE: usize = 7;
+    const BOTTOM_PRECEDENCE: usize = 6;
 
     fn expr_parse(
         ctx: &mut ParseContext<'a>, precedence: usize
@@ -1671,17 +1618,16 @@ impl<'a> Expr<'a> {
 
         use TokenType as TT;
 
-        macro_rules! take_precedence {
-            ($($tt:path => $k:path [$p:expr],)*) => {
-                match ctx.tokens.peek()?.kind {
+        macro_rules! take_infix {
+            ($($tt:expr => [$p:expr],)*) => {
+                match ctx.tokens.peek()?.content.as_ref() {
                 $($tt if precedence == $p => {
-                    left = $k(InfixOp {
+                    left = Self::Infix(InfixOp {
                         id: ctx.new_id(),
 
                         left: Box::new(left),
                         op: ctx.tokens.expected()?,
                         right: Box::new(Expr::expr_parse(ctx, precedence + 1)?),
-                        p: PhantomData,
                     });
                     continue;
                 },)*
@@ -1695,36 +1641,22 @@ impl<'a> Expr<'a> {
             // If the next token is the specified token and the precedence
             // matches, continue the left-associated operation
             // 'continue' the loop if a token is matched
-            take_precedence!(
-                TT::Equal          
-                    => Self::Assignment   [Self::ASSIGNMENT_PRECEDENCE],
+            take_infix!(
+                "||" => [Self::BOOLEAN_OR_PRECEDENCE],
 
-                TT::DoubleVBar     
-                    => Self::BooleanOr    [Self::BOOLEAN_OR_PRECEDENCE],
+                "&&" => [Self::BOOLEAN_AND_PRECEDENCE],
 
-                TT::DoubleAnd      
-                    => Self::BooleanAnd   [Self::BOOLEAN_AND_PRECEDENCE],
+                "==" => [Self::EQUALITY_PRECEDENCE],
+                "<"  => [Self::LOWER_PRECEDENCE],
+                "<=" => [Self::LOWER_EQUAL_PRECEDENCE],
+                ">"  => [Self::GREATER_PRECEDENCE],
+                ">=" => [Self::GREATER_EQUAL_PRECEDENCE],
 
-                TT::DoubleEqual    
-                    => Self::Equality     [Self::EQUALITY_PRECEDENCE],
-                TT::CaretOpen      
-                    => Self::Lower        [Self::LOWER_PRECEDENCE],
-                TT::CaretOpenEqual 
-                    => Self::LowerEqual   [Self::LOWER_EQUAL_PRECEDENCE],
-                TT::CaretClose     
-                    => Self::Greater      [Self::GREATER_PRECEDENCE],
-                TT::CaretCloseEqual
-                    => Self::GreaterEqual [Self::GREATER_EQUAL_PRECEDENCE],
+                "+"  => [Self::PLUS_PRECEDENCE],
+                "-"  => [Self::MINUS_PRECEDENCE],
 
-                TT::Plus           
-                    => Self::Plus         [Self::PLUS_PRECEDENCE],
-                TT::Dash           
-                    => Self::Minus        [Self::MINUS_PRECEDENCE],
-
-                TT::Star           
-                    => Self::Times        [Self::TIMES_PRECEDENCE],
-                TT::FSlash         
-                    => Self::Divide       [Self::DIVIDE_PRECEDENCE],
+                "*"  => [Self::TIMES_PRECEDENCE],
+                "/"  => [Self::DIVIDE_PRECEDENCE],
             );
 
             // Function calls after this
@@ -2007,20 +1939,10 @@ mod tests {
 
     #[test]
     fn block() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("<test>", "{ a = 10; c = true && false; b = a + c; }");
+        let mut ctx = ParseContext::from_src("<test>", "{ let a = 10; let c = true && false; let b = a + c; }");
         let expr = Expr::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "{(a = 10);(c = (true && false));(b = (a + c));}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn block2() -> Result<(), Box<dyn Error>> {
-        let mut ctx = ParseContext::from_src("<test>", "{ a = 10; c = true && false; b = a + c }");
-        let expr = Expr::parse(&mut ctx)?;
-
-        assert_eq!(format!("{expr}"), "{(a = 10);(c = (true && false));(b = (a + c))}");
+        assert_eq!(format!("{expr}"), "{let a = 10;let c = (true && false);let b = (a + c);}");
 
         Ok(())
     }
@@ -2046,20 +1968,20 @@ mod tests {
                     mut received i32
                 }
 
-                =increment> second;
+                => increment second;
 
                 reveived >= 10 -> {};
             }
 
             state second {
-                =decrement> first;
+                => decrement first;
             }
         }
         "#;
         let mut ctx = ParseContext::from_src("<test>", src);
         let expr = MachineTypeExpression::parse(&mut ctx)?;
 
-        assert_eq!(format!("{expr}"), "machine { initial state first { data {name string,id u32,mut received i32} =increment> second; (reveived >= 10) -> {}; } state second { =decrement> first; } }");
+        assert_eq!(format!("{expr}"), "machine { initial state first { data {name string,id u32,mut received i32} => increment second; (reveived >= 10) -> {}; } state second { => decrement first; } }");
 
         Ok(())
     }
