@@ -39,6 +39,37 @@ pub mod ast {
     pub trait NodeContainer<'a> {
         /// Visit all [Node]s in the container
         fn container_visit<V: AstVisitor<'a>>(&'a self, v: &mut V);
+
+        /// Returns the only id contained by the container
+        /// if there is more than one or no nodes in the container
+        /// None is returned
+        fn try_cont_id(&'a self) -> Option<NodeId> {
+            #[derive(Default)]
+            struct FirstVisitor {
+                found: Option<NodeId>,
+                found_more: bool,
+            }
+
+            impl<'b> AstVisitor<'b> for FirstVisitor {
+                fn visit_any(
+                    &mut self, node_ref: AnyNodeRef<'b>
+                ) {
+                    if self.found.is_some() {
+                        self.found_more = true;
+                    }
+                    self.found = Some(node_ref.any_id());
+                }
+            }
+
+            let mut v = FirstVisitor::default();
+            self.container_visit(&mut v);
+            (!v.found_more).then_some(()).and(v.found)
+        }
+
+        /// Unwraped version of [NodeContainer::try_cont_id]
+        fn cont_id(&'a self) -> NodeId {
+            self.try_cont_id().expect("Not a single element container")
+        }
     }
 
     /// Trait of all nodes in the AST
