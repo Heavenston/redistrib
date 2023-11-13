@@ -2,8 +2,68 @@
 
 use proc_macro::TokenStream;
 
+use proc_macro2::Ident;
 use quote::quote;
 use syn::{parse_macro_input, ItemEnum};
+
+/// Creates an enum with the same variants as the input enum but with no
+/// values associated with them
+///
+/// ```rust
+/// #[derive(Kind)]
+/// #[kind(EntityKind)]
+/// enum Entity {
+///     Player {
+///         username: String,
+///         pos: (f64, f64),
+///     },
+///     Enemy {
+///         life: u32,
+///         pos: (f64, f64),
+///     }
+/// }
+/// // Will generate
+/// enum EntityKind {
+///     Player,
+///     Enemy,
+/// }
+/// ```
+#[proc_macro_derive(Kind, attributes(kind))]
+pub fn derive_kind(tt: TokenStream) -> TokenStream {
+    let i = parse_macro_input!(tt as ItemEnum);
+
+    let mut name = None;
+    for attr in i.attrs {
+        if !attr.path().is_ident("kind")
+        { continue; }
+        let a = attr.parse_args::<Ident>().unwrap();
+        name = Some(a);
+    }
+    let Some(name) = name
+        else { return quote!{ compile_error!() }.into() };
+
+    let mut variants = Vec::new();
+
+    for v in i.variants {
+        let mut name = v.ident;
+        for attr in v.attrs {
+            if !attr.path().is_ident("kind")
+            { continue; }
+            name = attr.parse_args::<Ident>().unwrap();
+        }
+        variants.push(quote! { #name });
+    }
+
+    let vis = i.vis;
+    let ex = quote! {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #vis enum #name {
+            #(#variants),*
+        }
+    };
+
+    ex.into()
+}
 
 #[proc_macro_derive(TryAs)]
 pub fn derive_try_as(tt: TokenStream) -> TokenStream {

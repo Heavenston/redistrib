@@ -180,7 +180,7 @@ pub mod ast {
 
     /// List of nodes separated by a token, usually a comma (ex. arguments)
     /// with optional trailing separator
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct SeparatedList<'a, End: KnownToken<'a>, Sep: KnownToken<'a>, T> {
         pub phantom: PhantomData<*const &'a End>,
 
@@ -221,7 +221,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct LetBinding<'a> {
         pub id: NodeId,
 
@@ -275,7 +275,7 @@ pub mod ast {
     ///     }
     /// }
     /// ```
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct MachineTypeExpression<'a> {
         pub id: NodeId,
 
@@ -311,7 +311,7 @@ pub mod ast {
     }
 
     /// Items that go into a Machine
-    #[derive(Debug, TryAs)]
+    #[derive(TryAs, Debug, Clone, PartialEq, Eq, Hash)]
     pub enum MachineItem<'a> {
         Let(LetBinding<'a>),
         State(StateDeclaration<'a>),
@@ -338,7 +338,7 @@ pub mod ast {
     }
 
     /// A State declaration
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct StateDeclaration<'a> {
         pub id: NodeId,
 
@@ -380,7 +380,7 @@ pub mod ast {
     }
 
     /// Itemss that go into a State
-    #[derive(Debug, TryAs)]
+    #[derive(TryAs, Debug, Clone, PartialEq, Eq, Hash)]
     pub enum StateItem<'a> {
         Let(LetBinding<'a>),
         Transition(StateTransition<'a>),
@@ -417,7 +417,7 @@ pub mod ast {
     /// ```comune
     /// =bail> error;
     /// ```
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct StateTransition<'a> {
         pub id: NodeId,
 
@@ -447,7 +447,7 @@ pub mod ast {
     }
 
     /// A dynamic statement
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct Dyn<'a> {
         pub id: NodeId,
 
@@ -485,7 +485,7 @@ pub mod ast {
     }
 
     /// A state-data statement
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct Data<'a> {
         pub id: NodeId,
 
@@ -519,7 +519,7 @@ pub mod ast {
     }
 
     /// Itemss that go into a Data statement
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct DataItem<'a> {
         pub id: NodeId,
 
@@ -550,7 +550,7 @@ pub mod ast {
     }
 
     /// Operator in the infix form
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct InfixOp<'a> {
         pub id: NodeId,
 
@@ -581,7 +581,7 @@ pub mod ast {
     }
 
     /// An expression surrounded by parenthesis
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct ParentisedExpr<'a> {
         pub id: NodeId,
 
@@ -608,7 +608,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct SemiedExpr<'a> {
         pub id: NodeId,
 
@@ -635,7 +635,7 @@ pub mod ast {
     }
 
     /// Items that goes into a BlockExpr
-    #[derive(TryAs, Debug)]
+    #[derive(TryAs, Debug, Clone, PartialEq, Eq, Hash)]
     pub enum BlockItem<'a> {
         Let(LetBinding<'a>),
         Expr(SemiedExpr<'a>),
@@ -663,7 +663,7 @@ pub mod ast {
 
     /// A list of expressions separated by semicolons and surrounded by 
     /// curly braces
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct BlockExpr<'a> {
         pub id: NodeId,
 
@@ -708,7 +708,7 @@ pub mod ast {
     }
     
     /// An if expression
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct IfExpr<'a>{
         pub id: NodeId,
 
@@ -749,7 +749,7 @@ pub mod ast {
     }
 
     /// A while expression
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct WhileExpr<'a>{
         pub id: NodeId,
 
@@ -781,7 +781,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct DecimalLiteral<'a> {
         pub id: NodeId,
         pub tok: DecimalLiteralToken<'a>,
@@ -801,7 +801,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct StringLiteral<'a> {
         pub id: NodeId,
         pub tok: StringLiteralToken<'a>,
@@ -821,7 +821,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct TrueLiteral<'a> {
         pub id: NodeId,
         pub tok: TrueToken<'a>,
@@ -841,7 +841,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct FalseLiteral<'a> {
         pub id: NodeId,
         pub tok: FalseToken<'a>,
@@ -862,7 +862,7 @@ pub mod ast {
     }
 
     /// A literal value
-    #[derive(Debug, TryAs)]
+    #[derive(TryAs, Debug, Clone, PartialEq, Eq, Hash)]
     pub enum AnyLiteral<'a> {
         Decimal(DecimalLiteral<'a>),
         String(StringLiteral<'a>),
@@ -892,7 +892,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct FunctionApplicationExpr<'a> {
         pub id: NodeId,
 
@@ -920,7 +920,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct IdenExpr<'a> {
         pub id: NodeId,
 
@@ -943,7 +943,7 @@ pub mod ast {
 
     /// An expression with intemediate precedance
     /// Has the BooleanOr binary operator
-    #[derive(Debug, TryAs)]
+    #[derive(TryAs, Debug, Clone, PartialEq, Eq, Hash)]
     pub enum Expr<'a> {
         Infix(InfixOp<'a>),
 
@@ -997,7 +997,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum FileItem<'a> {
         Let(LetBinding<'a>),
     }
@@ -1020,7 +1020,7 @@ pub mod ast {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct File<'a> {
         pub id: NodeId,
 
