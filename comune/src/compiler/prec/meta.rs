@@ -13,7 +13,7 @@ pub trait Meta<'a>: Sized
     fn node_id(&self) -> ast::NodeId;
 }
 
-#[derive(TryAs)]
+#[derive(TryAs, Debug)]
 pub enum AnyMeta {
     FuncsParamsTypes(FuncsParamsTypesMeta),
     ValueType(ValueTypeMeta),

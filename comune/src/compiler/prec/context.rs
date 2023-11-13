@@ -10,12 +10,14 @@ use std::fmt::Debug;
 use std::sync::atomic::AtomicU64;
 use std::any;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TypeBind {
     Eq {
         to: PrecAnyTy,
     },
 }
 
+#[derive(Debug)]
 pub struct PrecContext<'a> {
     /// Various equality or else type binds
     type_binds: HashMap<PrecAnyTy, Vec<TypeBind>>,

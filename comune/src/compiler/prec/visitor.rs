@@ -19,10 +19,23 @@ pub struct PrecVisitor<'s, 'a> {
 
 impl<'s, 'a> PrecVisitor<'s, 'a> {
     pub fn new(ctx: &'s mut PrecContext<'a>) -> Self {
-        Self {
+        let mut this = Self {
             scope_stack: vec![],
             ctx,
-        }
+        };
+        this.push_new_scope();
+        this.define_symbol("+", ValueBind::Intrinsic { ty: FunctionType {
+            argument: Box::new(IntType.into()),
+            result: Box::new(FunctionType {
+                argument: Box::new(IntType.into()),
+                result: Box::new(IntType.into()),
+            }.into()),
+        }.into() });
+        this.define_symbol("printf", ValueBind::Intrinsic { ty: FunctionType {
+            argument: Box::new(IntType.into()),
+            result: Box::new(UnitType.into()),
+        }.into() });
+        this
     }
 
     fn push_new_scope(&mut self) {
@@ -104,9 +117,11 @@ impl<'s, 'a> ast::AstVisitor<'a> for PrecVisitor<'s, 'a> {
                     &i.op.content
                 ) else { todo!("Uknown symbol error not handled") };
 
+                use ValueBind as VB;
                 let fun = match referee {
-                    ValueBind::Intrinsic { ty } => ty.clone(),
-                    ValueBind::LetBinding { node } => val_var!(node).into(),
+                    VB::Intrinsic { ty } => ty.clone(),
+                    VB::LetBinding { node } => val_var!(node).into(),
+                    VB::Param { ty: type_var, .. } => (*type_var).into(),
                 };
 
                 // i :: Left -> (Right -> Result)
@@ -210,6 +225,18 @@ impl<'s, 'a> ast::AstVisitor<'a> for PrecVisitor<'s, 'a> {
                     &l.name.content,
                     ValueBind::LetBinding { node: l }
                 );
+
+                self.push_new_scope();
+                for (index, a) in l.params.iter().enumerate() {
+                    let ty = self.ctx.get_new_type_var();
+                    self.define_symbol(&a.content, ValueBind::Param {
+                        node: l, index, ty,
+                    });
+                }
+                node_ref.any_walk(self);
+                self.pop_scope();
+
+                return;
             },
             Anr::StateTransition(t) => {
                 self.define_symbol(
@@ -264,11 +291,13 @@ impl<'s, 'a> ast::AstVisitor<'a> for PrecVisitor<'s, 'a> {
             Anr::IdenExpr(i) => {
                 let Some(referee) = self.get_symbol::<ValueBind>(
                     &i.tok.content
-                ) else { todo!("Uknown symbol error not handled") };
+                ) else { todo!("Uknown symbol ({}) error not handled", i.tok.content) };
 
+                use ValueBind as VB;
                 let ty = match referee {
-                    ValueBind::Intrinsic { ty } => ty.clone(),
-                    ValueBind::LetBinding { node } => val_var!(node).into(),
+                    VB::Intrinsic { ty } => ty.clone(),
+                    VB::LetBinding { node } => val_var!(node).into(),
+                    VB::Param { ty: type_var, .. } => (*type_var).into(),
                 };
 
                 bind_eq!(val_var!(i), ty);

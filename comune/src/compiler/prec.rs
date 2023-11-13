@@ -8,7 +8,7 @@ use context::*;
 
 use crate::parser::ast::{ self, Node as AstNode, NodeContainer as AstContainer, AnyNodeKind, NodeId };
 use crate::try_as::{ TryAsRef, TryAsMut };
-use super::{AnyType, TypeCtx};
+use super::{AnyType, TypeCtx, TypeVar};
 
 use std::{borrow::Cow, ops::ControlFlow};
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ impl TypeCtx for PrecTyCtx {
     type Ref = Box<AnyType<Self>>;
 }
 
-pub type PrecAnyTy = AnyType<PrecTyCtx>;
+type PrecAnyTy = AnyType<PrecTyCtx>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PrecError {
@@ -52,6 +52,11 @@ pub enum ValueBind<'a> {
     },
     Intrinsic {
         ty: AnyType<PrecTyCtx>,
+    },
+    Param {
+        node: &'a ast::LetBinding<'a>,
+        index: usize,
+        ty: TypeVar,
     },
 }
 
@@ -111,8 +116,28 @@ impl<'a, C> ast::AstVisitor<'a> for ShallowVisit<C>
 
 #[cfg(test)]
 mod tests {
+    use crate::{parser::{ast, Parsable, ParseContext}, compiler::prec::context::PrecContext};
+
     #[test]
-    pub fn test() {
-        
+    pub fn test() -> Result<(), Box<dyn std::error::Error>> {
+        let src = r#"
+            let Main a b = {
+                let rs = a + b;
+                printf "This program makes no much sense \n";
+                printf "%d + %d = %d" a b rs;
+            };
+        "#;
+        // let src = r#"
+        //     let main a b = a + b;
+        // "#;
+        let ast = ast::File::parse(&mut ParseContext::from_src("<test>", src))?;
+        println!("AST: {ast}");
+
+        let files = [&ast];
+        let ctx = PrecContext::process_files(&files[..]);
+        println!("{ctx:#?}");
+
+        assert!(false);
+        Ok(())
     }
 }
