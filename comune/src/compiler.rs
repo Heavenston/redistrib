@@ -7,6 +7,25 @@ use std::hash::Hash;
 
 use macros::TryAs;
 
+mod type_name_id {
+    use std::sync::atomic::*;
+
+    /// ID for differentiating nominal types
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct TypeNameId {
+        id: u32,
+    }
+
+    impl TypeNameId {
+        pub fn next_static() -> Self {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+            Self { id: COUNTER.fetch_add(1, Ordering::Relaxed) }
+        }
+    }
+}
+pub use type_name_id::*;
+
 pub trait TypeCtx: Debug + Send + Sync + Copy + Clone {
     type Ref: Clone + Debug + PartialEq + Eq + Hash;
 }
@@ -20,6 +39,7 @@ pub enum AnyType<Ctx: TypeCtx> {
     Int(IntType),
     Float(FloatType),
     String(StringType),
+    Type(TypeType),
     Function(FunctionType<Ctx>),
     Machine(MachineType<Ctx>),
     Var(TypeVar),
@@ -46,6 +66,12 @@ pub struct StringType;
 impl<Ctx: TypeCtx> Type<Ctx> for StringType {  }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeType {
+    pub var: TypeVar,
+}
+impl<Ctx: TypeCtx> Type<Ctx> for TypeType {  }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionType<Ctx: TypeCtx> {
     pub argument: Ctx::Ref,
     pub result: Ctx::Ref,
@@ -66,6 +92,7 @@ pub struct MachineTypeState<Ctx: TypeCtx, Name = String> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MachineType<Ctx: TypeCtx> {
+    pub type_id: TypeNameId,
     pub states: Box<[MachineTypeState<Ctx>]>,
     pub initial_state: MachineTypeState<Ctx, Option<String>>,
 }

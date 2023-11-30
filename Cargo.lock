@@ -203,6 +203,7 @@ dependencies = [
  "arrayvec",
  "comune_macros_internals",
  "derive_more",
+ "itertools",
  "num_enum",
  "partial-min-max",
  "thiserror",

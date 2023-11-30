@@ -344,7 +344,7 @@ pub mod ast {
 
         pub initial_token: Option<InitialToken<'a>>,
         pub state_token: StateToken<'a>,
-        pub iden: IdenToken<'a>,
+        pub iden: Option<IdenToken<'a>>,
         pub open: CurlyOpenToken<'a>,
         pub items: Box<[StateItem<'a>]>,
         pub close: CurlyCloseToken<'a>,
@@ -368,7 +368,9 @@ pub mod ast {
                 write!(f, "{} ", initial)?;
             }
             write!(f, "{} ", self.state_token)?;
-            write!(f, "{} ", self.iden)?;
+            if let Some(iden) = self.iden {
+                write!(f, "{iden} ")?;
+            }
             write!(f, "{}", self.open)?;
             for i in self.items.iter() {
                 write!(f, " {}", i)?;
@@ -518,7 +520,8 @@ pub mod ast {
         }
     }
 
-    /// Itemss that go into a Data statement
+    /// Items that go into a Data statement
+    /// aka `[mut ]name: ty`
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct DataItem<'a> {
         pub id: NodeId,
@@ -1306,7 +1309,7 @@ impl<'a> Parsable<'a> for StateDeclaration<'a> {
     fn parse(ctx: &mut ParseContext<'a>) -> Result<Self, ParserError> {
         let initial_token = ctx.tokens.get_eq::<InitialToken>()?;
         let state_token = ctx.tokens.expected::<StateToken>()?;
-        let iden = ctx.tokens.expected::<IdenToken>()?;
+        let iden = ctx.tokens.get_eq::<IdenToken>()?;
 
         let open = parse(ctx)?;
         let mut items = vec![];

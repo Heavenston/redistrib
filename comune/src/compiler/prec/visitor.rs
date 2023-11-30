@@ -6,9 +6,11 @@ use std::fmt::Debug;
 use std::sync::atomic::AtomicU64;
 use std::any;
 
-use crate::compiler::{UnitType, BoolType, StringType, IntType, FunctionType};
-use crate::parser::ast::{ self, Node as AstNode, NodeContainer as AstContainer, AnyNodeKind };
+use crate::compiler::{UnitType, BoolType, StringType, IntType, FunctionType, MachineType, TypeNameId, MachineTypeState, MachineTypeStateDataField, TypeType};
+use crate::parser::ast::{ self, Node as AstNode, NodeContainer as AstContainer, AnyNodeKind, StateItem };
 use crate::try_as::{ TryAsRef, TryAsMut };
+
+use itertools::Itertools;
 
 // The 's lifetime is required because Prec is invariant on 'a so can't
 // be reffered with the same lifetime as 's
@@ -139,7 +141,8 @@ impl<'s, 'a> ast::AstVisitor<'a> for PrecVisitor<'s, 'a> {
 
                 let mut initial_state = None;
                 // FIXPERF: Allocation
-                let mut states = vec![];
+                let mut meta_states = vec![];
+                let mut ty_states = vec![];
 
                 for item in machine.items.iter() {
                     match item {
@@ -150,27 +153,64 @@ impl<'s, 'a> ast::AstVisitor<'a> for PrecVisitor<'s, 'a> {
                             );
                         },
                         ast::MachineItem::State(d) => {
-                            self.define_symbol(
-                                &d.iden.content,
-                                StateBind { node: d }
-                            );
+                            if let Some(iden) = d.iden {
+                                self.define_symbol(
+                                    &iden.content,
+                                    StateBind { node: d }
+                                );
+                            }
+
+                            let mut fields = vec![];
+                            for i in d.items.iter() {
+                                let StateItem::Data(data) = i
+                                    else { continue };
+                                for (f, _) in data.items.items.iter() {
+                                    let var = self.ctx.get_new_type_var();
+                                    fields.push(MachineTypeStateDataField {
+                                        name: f.iden.content.to_string(),
+                                        ty: var,
+                                    });
+                                }
+                            }
+                            let fields = fields.into_boxed_slice();
+
                             if d.initial_token.is_some() {
                                 if initial_state.is_some()
                                 { todo!("Multible initial states error not handled") }
-                                initial_state = Some(d.id);
+                                let state = MachineTypeState {
+                                    name: d.iden.map(|x| x.to_string()),
+                                    data_fields: fields.into_boxed_slice(),
+                                };
+                                initial_state = Some((state, d.id));
                             }
-                            states.push(d.id);
+                            else {
+                                let state = MachineTypeState {
+                                    name: match d.iden {
+                                        Some(x) => x.content.to_string(),
+                                        None => todo!("Missing state name on non initial state error not handled"),
+                                    },
+                                    data_fields: fields.into_boxed_slice(),
+                                };
+                                meta_states.push(d);
+                                ty_states.push(state);
+                            }
                         },
                     }
                 }
 
-                let Some(initial_state) = initial_state
+                let Some((ty_initial_state, meta_initial_state)) = initial_state
                     else { todo!("No initial state error not handled") };
 
+
+                let ty = MachineType {
+                    type_id: TypeNameId::next_static(),
+                    states: ty_states.into_boxed_slice(),
+                    initial_state: ty_initial_state,
+                };
                 self.ctx.add_meta(MachineMeta {
                     node: machine.id,
-                    states,
-                    initial_state,
+                    states: meta_states,
+                    initial_state: meta_initial_state,
                 });
             },
             Anr::StateDeclaration(s) => {
@@ -246,7 +286,10 @@ impl<'s, 'a> ast::AstVisitor<'a> for PrecVisitor<'s, 'a> {
             },
             Anr::Dyn(_) => todo!(),
             Anr::Data(_) => todo!(),
-            Anr::DataItem(_) => todo!(),
+            Anr::DataItem(di) => {
+                let var = self.ctx.get_new_type_var();
+                bind_eq!(val_var!(di.ty), TypeType { var });
+            },
             Anr::ParentisedExpr(e) => {
                 bind_eq!(val_var!(e), val_var!(e.expr));
             },
