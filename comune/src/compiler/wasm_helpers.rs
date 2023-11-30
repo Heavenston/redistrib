@@ -440,7 +440,7 @@ impl WasmModuleBuilder {
 
         section.clear();
         section.push(vec![]);
-        let mut mem0 = &mut section[0];
+        let mem0 = &mut section[0];
 
         // Number of memories, here hardcoded to one
         // as no more memory is allowed
@@ -613,7 +613,7 @@ impl WasmModuleBuilder {
         self.append_segment(SectionId::Import, data)
     }
 
-    pub fn build(mut self) -> Vec<u8> {
+    pub fn build(self) -> Vec<u8> {
         let section_order = [
             SectionId::Custom,
             SectionId::Type,

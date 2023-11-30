@@ -1,9 +1,9 @@
-mod meta;
+pub mod meta;
 use macros::{TryAs, Kind};
 use meta::*;
-mod visitor;
+pub mod visitor;
 use visitor::*;
-mod context;
+pub mod context;
 use context::*;
 
 use crate::parser::ast::{ self, Node as AstNode, NodeContainer as AstContainer, AnyNodeKind, NodeId };
@@ -116,16 +116,12 @@ impl<'a, C> ast::AstVisitor<'a> for ShallowVisit<C>
 
 #[cfg(test)]
 mod tests {
-    use crate::{parser::{ast, Parsable, ParseContext}, compiler::prec::context::PrecContext};
+    use crate::{parser::{ast, Parsable, ParseContext}, compiler::prec::{context::PrecContext, meta::ValueTypeMeta}};
 
     #[test]
     pub fn test() -> Result<(), Box<dyn std::error::Error>> {
         let src = r#"
-            let Main a b = {
-                let rs = a + b;
-                printf "This program makes no much sense \n";
-                printf "%d + %d = %d" a b rs;
-            };
+            let Main a b = a + b;
         "#;
         // let src = r#"
         //     let main a b = a + b;

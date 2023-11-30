@@ -363,12 +363,12 @@ impl<'s, 'a> ast::AstVisitor<'a> for PrecVisitor<'s, 'a> {
                 bind_eq!(val_var!(i), ty);
             }
 
-            // File is only just visited further
+            // Nothing to be done in file as it is only a container
             Anr::File(_) => (),
         }
 
         // Must stay the only logic here as some match branch may return to
-        // make there own walk
+        // make their own walk
         node_ref.any_walk(self);
     }
 }
