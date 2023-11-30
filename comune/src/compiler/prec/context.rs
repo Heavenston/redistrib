@@ -75,7 +75,7 @@ impl<'a> PrecContext<'a> {
             .and_then(|x| x.try_as_ref())
     }
 
-    pub(in crate::compiler) fn add_meta<M: Meta<'a>>(&mut self, meta: M) -> &mut M
+    pub(in crate::compiler) fn insert_meta<M: Meta<'a>>(&mut self, meta: M) -> &mut M
         where AnyMeta: TryAsRef<M> + TryAsMut<M> + From<M>,
     {
         let nid = meta.node_id();

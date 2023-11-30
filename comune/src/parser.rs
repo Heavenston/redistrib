@@ -368,7 +368,7 @@ pub mod ast {
                 write!(f, "{} ", initial)?;
             }
             write!(f, "{} ", self.state_token)?;
-            if let Some(iden) = self.iden {
+            if let Some(iden) = &self.iden {
                 write!(f, "{iden} ")?;
             }
             write!(f, "{}", self.open)?;
