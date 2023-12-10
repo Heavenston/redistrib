@@ -1,7 +1,5 @@
 #![feature(int_roundings)]
 #![feature(maybe_uninit_slice)]
-#![feature(core_intrinsics)]
-#![feature(io_error_other)]
 
 #![allow(dead_code)]
 

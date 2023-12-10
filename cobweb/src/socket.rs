@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::{Arc, Weak}, task, pin::Pin};
 
 use bytes::{BytesMut, BufMut};
 use futures::{Stream, Sink};
-use tokio::{net::UdpSocket, sync::broadcast, io::{AsyncRead, ReadBuf, AsyncWrite}};
+use tokio::{net::UdpSocket, sync::broadcast, io::AsyncWrite};
 use tokio_util::io::poll_read_buf;
 use rand::prelude::*;
 
@@ -73,10 +73,10 @@ impl Socket {
     ) -> anyhow::Result<()> {
         let mut bytes = BytesMut::new();
 
-        bincode::serialize_into((&mut bytes).writer(), packet);
+        bincode::serialize_into((&mut bytes).writer(), packet)?;
 
         self.shared.ssocket.send_message(to, bytes.freeze())
-            .await;
+            .await?;
 
         Ok(())
     }
