@@ -5,6 +5,8 @@ pub mod visitor;
 use visitor::*;
 pub mod context;
 use context::*;
+pub mod type_inferer;
+use type_inferer::*;
 
 use crate::parser::ast::{ self, Node as AstNode, NodeContainer as AstContainer, AnyNodeKind, NodeId };
 use crate::try_as::{ TryAsRef, TryAsMut };
@@ -19,12 +21,12 @@ use std::any;
 ///! Preprocessing step on the AST notably figuring out types
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct PrecTyCtx;
+pub struct PrecTyCtx;
 impl TypeCtx for PrecTyCtx {
     type Ref = Box<AnyType<Self>>;
 }
 
-type PrecAnyTy = AnyType<PrecTyCtx>;
+pub type PrecAnyTy = AnyType<PrecTyCtx>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PrecError {

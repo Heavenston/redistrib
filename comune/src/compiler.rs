@@ -109,11 +109,8 @@ mod type_var {
     impl<Ctx: TypeCtx> Type<Ctx> for TypeVar {  }
 
     impl TypeVar {
-        pub fn next_static() -> Self {
-            static COUNTER: AtomicU32 = AtomicU32::new(0);
-
-            Self { id: COUNTER.fetch_add(1, Ordering::Relaxed) }
-        }
+        pub fn from_raw(n: u32) -> Self { TypeVar { id: n } }
+        pub fn into_raw(self) -> u32 { self.id }
     }
 }
 pub use type_var::*;

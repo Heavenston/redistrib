@@ -10,19 +10,9 @@ use std::fmt::Debug;
 use std::sync::atomic::AtomicU64;
 use std::any;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum TypeBind {
-    Eq {
-        to: PrecAnyTy,
-    },
-}
-
 #[derive(Debug)]
 pub struct PrecContext<'a> {
-    /// Various equality or else type binds
-    type_binds: HashMap<PrecAnyTy, Vec<TypeBind>>,
-    /// Fully resolved values of type variables
-    type_vars: HashMap<TypeVar, Option<PrecAnyTy>>,
+    inferer: TypeInferer,
 
     nodes: HashMap<ast::NodeId, ast::AnyNodeRef<'a>>,
     metas: HashMap<(any::TypeId, ast::NodeId), AnyMeta>,
@@ -31,8 +21,7 @@ pub struct PrecContext<'a> {
 impl<'a> PrecContext<'a> {
     pub fn process_files(files: &'a [&'a ast::File<'a>]) -> Self {
         let mut this = PrecContext {
-            type_binds: HashMap::new(),
-            type_vars: HashMap::new(),
+            inferer: TypeInferer::new(),
 
             nodes: Default::default(),
             metas: Default::default(),
