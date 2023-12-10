@@ -11,7 +11,5 @@ debug=true
 resolver = "2"
 members = [
   "stridul",
-  "cobweb",
-  "comune",
-  "comune_macros_internals",
+  "cobweb"
 ]
