@@ -6,7 +6,7 @@ use std::{
 };
 
 use bytes::{Bytes, BytesMut};
-use tokio::{time as ttime, sync::{mpsc, oneshot}};
+use tokio::{time as ttime, sync::oneshot};
 use futures::future::Either as fEither;
 
 type FlumePipe<T> = (flume::Sender<T>, flume::Receiver<T>);
@@ -46,9 +46,9 @@ pub enum CreateStreamError<Strat: Strategy> {
 pub struct Socket<Strat: Strategy> {
     socket: Strat::Socket,
 
-    async_packet_send_request_send: mpsc::Sender<(Strat::PeersAddr, Packet)>,
-    packets_in_flight_send: mpsc::Sender<InFlightPacket<Strat>>,
-    loopback_messages_send: mpsc::Sender<Packet>,
+    async_packet_send_request_send: flume::Sender<(Strat::PeersAddr, Packet)>,
+    packets_in_flight_send: flume::Sender<InFlightPacket<Strat>>,
+    loopback_messages_send: flume::Sender<Packet>,
 
     created_streams: FlumePipe<(
         Arc<Stream<Strat>>, oneshot::Sender<Result<(), CreateStreamError<Strat>>>
@@ -64,13 +64,13 @@ impl<Strat: Strategy> Socket<Strat> {
     ) -> (Arc<Self>, SocketDriver<Strat>) {
         let (
             packets_in_flight_send, packets_in_flight_recv
-        ) = mpsc::channel(2048);
+        ) = flume::unbounded();
         let (
             async_packet_send_request_send, async_packet_send_request_recv,
-        ) = mpsc::channel(1024);
+        ) = flume::unbounded();
         let (
             loopback_messages_send, loopback_messages_recv,
-        ) = mpsc::channel(2048);
+        ) = flume::unbounded();
 
         let this = Arc::new(Self {
             socket,
@@ -140,7 +140,7 @@ impl<Strat: Strategy> Socket<Strat> {
         log::trace!("[{:?}] > {} to {:?}", self.socket.local_addr(), packet, dest);
 
         if dest == &self.local_addr() {
-            self.loopback_messages_send.send(packet.clone()).await
+            self.loopback_messages_send.send_async(packet.clone()).await
                 .map_err(|_| Error::DriverDropped)?;
             return Ok(());
         }
@@ -159,11 +159,11 @@ impl<Strat: Strategy> Socket<Strat> {
         self.send_raw(&dest, &packet.clone().into()).await?;
 
         let (ack_send, ack_recv) = oneshot::channel();
-        self.packets_in_flight_send.send(InFlightPacket {
+        self.packets_in_flight_send.send_async(InFlightPacket {
             packet,
             addr: dest,
             sent_at: Instant::now(),
-            // FIXPERF: Rto based on calculated RTT
+            // FIXPERF: RTO based on calculated RTT
             rto: Strat::BASE_RTO,
             ack_send,
         }).await.ok();
@@ -231,9 +231,9 @@ pub struct SocketDriver<Strat: Strategy> {
         Strat::PeersAddr, HashMap<StreamID, Arc<Stream<Strat>>>
     >,
 
-    async_packet_send_request_recv: mpsc::Receiver<(Strat::PeersAddr, Packet)>,
-    packets_in_flight_recv: mpsc::Receiver<InFlightPacket<Strat>>,
-    loopback_messages_recv: mpsc::Receiver<Packet>,
+    async_packet_send_request_recv: flume::Receiver<(Strat::PeersAddr, Packet)>,
+    packets_in_flight_recv: flume::Receiver<InFlightPacket<Strat>>,
+    loopback_messages_recv: flume::Receiver<Packet>,
 
     /// The list of all packets that has not been acknoledged yet
     /// Sorted from oldest to newest
@@ -316,11 +316,11 @@ impl<Strat: Strategy> SocketDriver<Strat> {
                     }
                 }
 
-                Some((addr, packet)) = self.async_packet_send_request_recv.recv() => {
+                Ok((addr, packet)) = self.async_packet_send_request_recv.recv_async() => {
                     self.socket.send_raw(&addr, &packet).await?;
                 }
 
-                Some(p) = self.packets_in_flight_recv.recv() => {
+                Ok(p) = self.packets_in_flight_recv.recv_async() => {
                     log::trace!("[{:?}] In flight: {p}", self.socket.local_addr());
                     self.packets_in_flight.push(p);
                 }
@@ -381,7 +381,7 @@ impl<Strat: Strategy> SocketDriver<Strat> {
                     }
                 }
 
-                Some(lp) = self.loopback_messages_recv.recv() => {
+                Ok(lp) = self.loopback_messages_recv.recv_async() => {
                     match self.drive_packet(self.socket.local_addr(), lp).await? {
                         ControlFlow::Continue(()) => (),
                         ControlFlow::Break(b) => return Ok(b),
