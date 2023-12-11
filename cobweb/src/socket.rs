@@ -85,7 +85,7 @@ impl Socket {
     ) -> anyhow::Result<SPacketStream> {
         let id = rand::thread_rng().gen();
 
-        let stream = self.shared.ssocket.get_or_create_stream(id, to)
+        let stream = self.shared.ssocket.create_stream(id, to)
             .await?;
         let stream = SPacketStream::create(stream);
 
