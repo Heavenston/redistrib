@@ -2,7 +2,7 @@ use crate::socket::Socket;
 
 use tokio::net::{UdpSocket, ToSocketAddrs};
 
-// TODO: Make it generic-based to avoid runtime errors on build
+// TODO: Make it generic-based to avoid runtime errors
 #[derive(Default)]
 pub struct NodeBuilder {
     socket: Option<Socket>,
@@ -24,6 +24,10 @@ impl NodeBuilder {
     pub fn with_udp_socket(
         &mut self, udp_socket: UdpSocket,
     ) -> &mut Self {
+        assert!(
+            self.socket.is_none(),
+            "you probably didn't mean to overwrite udp socket"
+        );
         self.socket = Some(Socket::new(udp_socket));
         self
     }
