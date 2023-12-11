@@ -134,6 +134,7 @@ dependencies = [
  "ouroboros",
  "rand",
  "serde",
+ "static_assertions",
  "stridul",
  "tokio",
  "tokio-util",
