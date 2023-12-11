@@ -1,10 +1,8 @@
 use std::{net::SocketAddr, sync::{Arc, Weak}};
 
-use bytes::{BytesMut, BufMut};
+use bytes::Bytes;
 use tokio::{net::UdpSocket, sync::broadcast};
 use rand::prelude::*;
-
-use crate::packet::Packet;
 
 #[derive(Debug, Clone)]
 pub struct CobwebStridulStrategy;
@@ -27,7 +25,7 @@ pub type SPacketStream = stridul::PacketStream<CobwebStridulStrategy>;
 pub enum SocketDriveEvent {
     Message {
         from: SocketAddr,
-        packet: Arc<Packet>,
+        packet: Bytes,
     },
     Stream {
         stream: Arc<SStream>,
@@ -39,6 +37,7 @@ struct SharedSocket {
     ssocket: Arc<SSocket>,
 }
 
+#[derive(Clone)]
 pub struct Socket {
     shared: Arc<SharedSocket>,
 }
@@ -49,7 +48,7 @@ impl Socket {
         let (ssocket, driver) = SSocket::new(udp_socket);
 
         let shared = Arc::new(SharedSocket {
-            event_sender: broadcast::channel(1024).0,
+            event_sender: broadcast::channel(16384).0,
             ssocket,
         });
 
@@ -63,18 +62,16 @@ impl Socket {
         }
     }
 
-    pub async fn next_event() {
-
+    // create a new event receiver, it will start receiving events from after
+    // this call only
+    pub fn get_event_receiver(&self) -> broadcast::Receiver<SocketDriveEvent> {
+        self.shared.event_sender.subscribe()
     }
 
     pub async fn send_message(
-        &self, to: SocketAddr, packet: &Packet,
+        &self, to: SocketAddr, bytes: Bytes,
     ) -> anyhow::Result<()> {
-        let mut bytes = BytesMut::new();
-
-        bincode::serialize_into((&mut bytes).writer(), packet)?;
-
-        self.shared.ssocket.send_message(to, bytes.freeze())
+        self.shared.ssocket.send_message(to, bytes)
             .await?;
 
         Ok(())
@@ -111,16 +108,8 @@ async fn driver_task(
                 );
             },
             DE::Message { data, from } => {
-                let packet = match bincode::deserialize(&data) {
-                    Ok(p) => Arc::new(p),
-                    Err(e) => {
-                        log::warn!("Invalid message from {from} > {e}");
-                        continue;
-                    },
-                };
-
                 let _ = sn.event_sender.send(
-                    SocketDriveEvent::Message { from, packet }
+                    SocketDriveEvent::Message { from, packet: data }
                 );
             },
         }
