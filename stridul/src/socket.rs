@@ -38,6 +38,10 @@ pub enum CreateStreamError<Strat: Strategy> {
     Other(#[from] Error),
 }
 
+/// A UDP(?) socket from which you can create/get existing streams,
+/// send unreliable messages, and maybe other things
+/// 
+/// most receiving operations are done through the uniquely owned SocketDriver
 #[derive(Debug)]
 pub struct Socket<Strat: Strategy> {
     socket: Strat::Socket,
@@ -52,6 +56,9 @@ pub struct Socket<Strat: Strategy> {
 }
 
 impl<Strat: Strategy> Socket<Strat> {
+    /// Creates a new socket from the inner (UDP?) socket,
+    /// also gived a [SocketDriver] of which the [SocketDriver::drive] function
+    /// must by called in a loop in order to make the socket work
     pub fn new(
         socket: Strat::Socket
     ) -> (Arc<Self>, SocketDriver<Strat>) {
