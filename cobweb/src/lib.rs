@@ -4,4 +4,5 @@
 
 pub mod node;
 pub mod module;
+pub mod events;
 pub(crate) mod socket;
