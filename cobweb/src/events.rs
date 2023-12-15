@@ -97,7 +97,7 @@ impl<E: Event> Deref for TypedEventObj<E> {
 impl<E: Event> Debug for TypedEventObj<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("TypedEventObj")
-            .field(&*self)
+            .field(&**self)
             .finish()
     }
 }
