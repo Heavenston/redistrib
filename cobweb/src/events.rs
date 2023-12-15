@@ -82,6 +82,23 @@ impl<E: Event> Deref for TypedEventObj<E> {
     }
 }
 
+impl<E: Event> Debug for TypedEventObj<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("TypedEventObj")
+            .field(&*self)
+            .finish()
+    }
+}
+
+impl<E> PartialEq for TypedEventObj<E>
+    where E: Event + PartialEq
+{
+    fn eq(&self, other: &Self) -> bool {
+        (&**self) == (&**other)
+    }
+}
+impl<E: Event + Eq> Eq for TypedEventObj<E> { }
+
 #[derive(Debug)]
 struct EventInner {
     senders: RwLock<
