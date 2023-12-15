@@ -1,35 +1,22 @@
-use std::{any::TypeId, sync::Arc};
+use std::{sync::Arc, borrow::Cow};
 
 use static_assertions as ca;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum ModuleIdInner {
-    TypeId {
-        id: TypeId,
-    },
-    DisriminatedTypeId {
-        discriminant: u64,
-        id: TypeId,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModuleId {
-    inner: ModuleIdInner,
+    inner: Cow<'static, str>,
 }
 
 impl ModuleId {
-    pub fn from_type_id(id: TypeId) -> Self {
+    pub fn from_str(name: &'static str) -> Self {
         Self {
-            inner: ModuleIdInner::TypeId { id }
+            inner: Cow::from(name)
         }
     }
 
-    pub fn from_type_id_with_discriminent(
-        id: TypeId, discriminant: u64
-    ) -> Self {
+    pub fn from_string(name: String) -> Self {
         Self {
-            inner: ModuleIdInner::DisriminatedTypeId { discriminant, id }
+            inner: Cow::from(name)
         }
     }
 }
