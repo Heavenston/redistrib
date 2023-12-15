@@ -12,6 +12,18 @@ use tokio::sync::broadcast;
 pub trait Event: Any + Debug + Sync + Send + 'static {
     fn event_type_id(&self) -> TypeId;
     fn to_any(self: Arc<Self>) -> Arc<dyn Any>;
+
+    fn obj(self) -> EventObj
+        where Self: Sized
+    {
+        self.into()
+    }
+
+    fn typed(self) -> TypedEventObj<Self>
+        where Self: Sized
+    {
+        self.obj().typed()
+    }
 }
 ca::assert_obj_safe!(Event);
 
