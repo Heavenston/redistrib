@@ -24,11 +24,11 @@ impl EventObj {
         self.0.clone().to_any()
     }
 
-    fn typed<E: Event>(&self) -> TypedEventObj<E> {
+    pub fn typed<E: Event>(&self) -> TypedEventObj<E> {
         TypedEventObj::from_obj(self)
     }
 
-    fn try_typed<E: Event>(&self) -> Option<TypedEventObj<E>> {
+    pub fn try_typed<E: Event>(&self) -> Option<TypedEventObj<E>> {
         TypedEventObj::try_from_obj(self)
     }
 }
@@ -38,6 +38,12 @@ impl Deref for EventObj {
 
     fn deref(&self) -> &Self::Target {
         &*self.0
+    }
+}
+
+impl<E: Event> From<E> for EventObj {
+    fn from(value: E) -> Self {
+        Self(Arc::new(value) as Arc<dyn Event>)
     }
 }
 
@@ -193,14 +199,14 @@ impl GlobalEventHandler {
             })
     }
 
-    pub async fn try_next_event_of<E: Event>(
+    pub fn try_next_event_of<E: Event>(
         &mut self
     ) -> Option<TypedEventObj<E>> {
-        let obj = self.try_next_event_of_any(TypeId::of::<E>()).await;
+        let obj = self.try_next_event_of_any(TypeId::of::<E>());
         obj.as_ref().map(EventObj::typed)
     }
 
-    pub async fn try_next_event_of_any(
+    pub fn try_next_event_of_any(
         &mut self, type_id: TypeId
     ) -> Option<EventObj> {
         let (.., recv) = self.subs.iter_mut().find(|x| x.0 == type_id)
@@ -209,6 +215,18 @@ impl GlobalEventHandler {
             Ok(x) => Some(x),
             Err(broadcast::error::TryRecvError::Empty) => None,
             x => { x.expect("broadcast recv error"); None },
+        }
+    }
+
+    pub fn emit<E: Into<EventObj>>(&self, obj: E) {
+        let obj = obj.into();
+        // no sender = no reveiver = no need to send anything
+        let Some(sender) = self.get_sender_any(obj.event_type_id())
+            else { return; };
+        match sender.send(obj) {
+            Ok(_) => (),
+            // No receiver is not an error here
+            Err(broadcast::error::SendError(_)) => (),
         }
     }
 }
