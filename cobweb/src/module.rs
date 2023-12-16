@@ -28,10 +28,6 @@ pub trait Module: Send {
     /// unique id for this module, must never change througth the life of the
     /// module
     fn display_name(&self) -> Arc<str>;
-
-    /// Dependencies array, must never change through the life of the
-    /// module
-    fn dependencies(&self) -> &[ModuleId];
 }
 
 ca::assert_obj_safe!(Module);
