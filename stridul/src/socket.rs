@@ -243,10 +243,12 @@ pub struct SocketDriver<Strat: Strategy> {
 }
 
 impl<Strat: Strategy> SocketDriver<Strat> {
-    /// Drives the socket until a new stream is received
+    /// Drives the socket until a new event happens
     ///
     /// Must be called in a loop as no packet can be received while this is
     /// not running
+    ///
+    /// This is not cancel safe
     pub async fn drive(
         &mut self
     ) -> Result<DrivingEvent<Strat>, Error> {

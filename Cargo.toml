@@ -11,5 +11,7 @@ debug=true
 resolver = "2"
 members = [
   "stridul",
-  "cobweb"
+  "cobweb",
+  "honeybee",
+  "rangedht"
 ]

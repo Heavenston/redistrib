@@ -14,6 +14,7 @@ From [Wikipedia](https://fr.wikipedia.org/wiki/Stridulation)
 
 ## TODOs
 
+- [ ] Have better api than the Socket / SocketDriver api
 - [ ] Figure-out what happens when packets sequence number wraps around as I forgot about that during most development
 - [ ] "Garbage collection" of unsused streams after some time
 - [ ] Limit the amount of streams a single remote addr can create

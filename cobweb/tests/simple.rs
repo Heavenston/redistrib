@@ -10,7 +10,7 @@ async fn events() -> Result<(), Box<dyn Error>> {
 
     impl Event for EInt {
         fn event_type_id(&self) -> TypeId { TypeId::of::<Self>() }
-        fn to_any(self: Arc<Self>) -> Arc<dyn Any> { self as Arc<dyn Any> }
+        fn to_any(self: Arc<Self>) -> Arc<dyn Send + Sync + Any> { self as Arc<_> }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,7 +18,7 @@ async fn events() -> Result<(), Box<dyn Error>> {
 
     impl Event for EStr {
         fn event_type_id(&self) -> TypeId { TypeId::of::<Self>() }
-        fn to_any(self: Arc<Self>) -> Arc<dyn Any> { self as Arc<dyn Any> }
+        fn to_any(self: Arc<Self>) -> Arc<dyn Send + Sync + Any> { self as Arc<_> }
     }
 
     let mut a = GlobalEventHandler::new();

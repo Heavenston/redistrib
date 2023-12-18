@@ -5,13 +5,14 @@ use std::sync::{Arc, RwLock};
 use std::any::{ Any, TypeId };
 use std::fmt::Debug;
 
+use futures::FutureExt;
 use itertools::Itertools;
 use static_assertions as ca;
 use tokio::sync::broadcast;
 
 pub trait Event: Any + Debug + Sync + Send + 'static {
     fn event_type_id(&self) -> TypeId;
-    fn to_any(self: Arc<Self>) -> Arc<dyn Any>;
+    fn to_any(self: Arc<Self>) -> Arc<dyn Send + Sync + Any>;
 
     fn obj(self) -> EventObj
         where Self: Sized
@@ -32,7 +33,7 @@ pub struct EventObj(Arc<dyn Event>);
 ca::assert_impl_all!(EventObj: Send, Sync);
 
 impl EventObj {
-    fn to_any(&self) -> Arc<dyn Any> {
+    fn to_any(&self) -> Arc<dyn Send + Sync + Any> {
         self.0.clone().to_any()
     }
 
@@ -61,8 +62,8 @@ impl<E: Event> From<E> for EventObj {
 
 #[derive(Clone)]
 pub struct TypedEventObj<E: Event> {
-    phantom: PhantomData<*const E>,
-    any: Arc<dyn Any>,
+    phantom: PhantomData<E>,
+    any: Arc<dyn Send + Sync + Any>,
 }
 
 impl<E: Event> TypedEventObj<E> {
@@ -126,9 +127,13 @@ impl Default for EventInner {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct GlobalEventHandler {
-    subs: Vec<(TypeId, broadcast::Receiver<EventObj>)>,
+    subs: Vec<(
+        TypeId,
+        Option<Box<dyn Send + Sync + FnMut(&EventObj) -> bool>>,
+        broadcast::Receiver<EventObj>
+    )>,
     inner: Arc<EventInner>,
 }
 
@@ -181,28 +186,47 @@ impl GlobalEventHandler {
     }
 
     pub fn subscribe<E: Event>(&mut self) -> bool {
-        self.subscribe_any(TypeId::of::<E>())
+        self.subscribe_type(TypeId::of::<E>())
     }
 
-    pub fn subscribe_any(&mut self, type_id: TypeId) -> bool {
-        if self.subs.iter().any(|x| x.0 == type_id) {
-            return false;
-        }
-
+    pub fn subscribe_type(&mut self, type_id: TypeId) -> bool {
         let sender = self.get_sender_or_insert_any(type_id);
         let recv = sender.subscribe();
 
-        self.subs.push((type_id, recv));
+        self.subs.push((type_id, None, recv));
+
+        true
+    }
+
+    pub fn subscribe_filter<E, F>(&mut self, mut f: F) -> bool
+        where E: Event,
+              F: Send + Sync + FnMut(&TypedEventObj<E>) -> bool + 'static,
+    {
+        self.subscribe_type_filter(TypeId::of::<E>(), move |x| f(&x.typed()))
+    }
+
+    pub fn subscribe_type_filter<F>(&mut self, type_id: TypeId, f: F) -> bool
+        where F: Send + Sync + FnMut(&EventObj) -> bool + 'static,
+    {
+        let sender = self.get_sender_or_insert_any(type_id);
+        let recv = sender.subscribe();
+
+        self.subs.push((type_id, Some(Box::new(f) as Box<_>), recv));
 
         true
     }
 
     pub async fn next_event(&mut self) -> EventObj {
-        let waits = self.subs.iter_mut()
-            .map(|x| Box::pin(x.1.recv()))
-            .collect_vec();
-        let (res, _, _) = futures::future::select_all(waits).await;
-        res.expect("broadcast recv error")
+        loop {
+            let waits = self.subs.iter_mut()
+                .map(|x| Box::pin(x.2.recv().map(|y| (&mut x.1, y))))
+                .collect_vec();
+            let ((filter, res), _, _) = futures::future::select_all(waits).await;
+            let res = res.expect("broadcast recv error");
+            if filter.as_mut().map_or(true, |f| f(&res)) {
+                break res;
+            }
+        }
     }
 
     pub async fn next_event_of<E: Event>(
@@ -214,17 +238,27 @@ impl GlobalEventHandler {
     pub async fn next_event_of_any(
         &mut self, type_id: TypeId
     ) -> EventObj {
-        let (.., recv) = self.subs.iter_mut().find(|x| x.0 == type_id)
+        let (_, filter, recv) = self.subs.iter_mut().find(|x| x.0 == type_id)
             .expect("not subscribed to this event");
-        recv.recv().await.expect("broadcast recv error")
+        loop {
+            let res = recv.recv().await.expect("broadcast recv error");
+
+            if filter.as_mut().map_or(true, |f| f(&res)) {
+                break res;
+            }
+        }
     }
 
     pub fn try_next_event(&mut self) -> Option<EventObj> {
         self.subs.iter_mut()
-            .find_map(|(_, recv)| match recv.try_recv() {
-                Ok(x) => Some(x),
-                Err(broadcast::error::TryRecvError::Empty) => None,
-                x => { x.expect("broadcast recv error"); None },
+            .find_map(|(_, filter, recv)| loop {
+                match recv.try_recv() {
+                    Ok(x) if filter.is_none() ||
+                        filter.as_mut().unwrap()(&x) => break Some(x),
+                    Ok(_) => continue,
+                    Err(broadcast::error::TryRecvError::Empty) => break None,
+                    x => { x.expect("broadcast recv error"); unreachable!() },
+                }
             })
     }
 

@@ -12,10 +12,9 @@ flume = "0.11.0"
 futures = "0.3.28"
 itertools = "0.11.0"
 log = "0.4.20"
-static_assertions = "1.1.0"
 thiserror = "1.0.47"
 tokio = { version = "1.32.0", features = ["net", "bytes", "macros", "time", "io-util"] }
-tokio-util = "0.7.8"
+tokio-util = { version = "0.7.10", features = ["io"] }
 serde = { version = "1.0.183", features = ["derive"], optional = true }
 ouroboros = "0.18.0"
 
