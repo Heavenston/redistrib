@@ -87,7 +87,7 @@ impl<Strat> StrategySocket<Strat> for UdpSocket
     }
 }
 
-pub trait Strategy: Debug + Sized + 'static {
+pub trait Strategy: Debug + Send + Sized + 'static {
     type Socket: StrategySocket<Self>;
     type PeersAddr: Debug + Clone + PartialEq + Eq + Hash + Send + Sync + 'static;
 

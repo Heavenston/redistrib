@@ -12,6 +12,7 @@ bytes = "1.5.0"
 cobweb = { version = "0.1.0", path = "../cobweb" }
 flume = "0.11.0"
 futures = "0.3.29"
+log = "0.4.20"
 ran = "1.1.5"
 rand = "0.8.5"
 static_assertions = "1.1.0"

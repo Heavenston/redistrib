@@ -322,8 +322,8 @@ impl<'a, Strat: Strategy> AsyncRead for StreamReader<'a, Strat> {
 /// AsyncWriter wrapper for a stridul stream
 pub struct StreamWriter<'a, Strat: Strategy> {
     stream: &'a Stream<Strat>,
-    write_buffer_unlock: Option<Pin<Box<dyn 'a + Future<Output = AMutexGuard<'a, BytesMut>>>>>,
-    flushing: Option<Pin<Box<dyn 'a + Future<Output = Result<(), Error>>>>>,
+    write_buffer_unlock: Option<Pin<Box<dyn 'a + Send + Future<Output = AMutexGuard<'a, BytesMut>>>>>,
+    flushing: Option<Pin<Box<dyn 'a + Send + Future<Output = Result<(), Error>>>>>,
 }
 
 impl<'a, Strat: Strategy> StreamWriter<'a, Strat> {

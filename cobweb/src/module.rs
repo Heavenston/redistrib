@@ -1,4 +1,4 @@
-use std::{sync::Arc, borrow::Cow, hash};
+use std::{sync::Arc, hash};
 
 use static_assertions as ca;
 

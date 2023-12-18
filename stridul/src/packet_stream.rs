@@ -34,6 +34,10 @@ impl<Strat: Strategy> PacketStream<Strat> {
             send_buffer: BytesMut::new(),
         }.build()
     }
+
+    pub fn inner(&self) -> &Arc<crate::Stream<Strat>> {
+        &self.borrow_stream()
+    }
 }
 
 impl<Strat: Strategy> Stream for PacketStream<Strat> {

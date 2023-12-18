@@ -4,15 +4,15 @@
 
 // pub(crate) mod socket;
 pub mod events;
-use bytes::BytesMut;
 pub use events::*;
 pub mod address;
 pub use address::*;
-use tokio::io::AsyncWriteExt;
+use stridul::PacketStream;
+use tokio::task::JoinHandle;
 
 use std::{sync::Arc, marker::PhantomData, net::SocketAddr};
 
-use futures::{sink::Sink, SinkExt};
+use futures::{SinkExt, StreamExt};
 use anyhow::anyhow;
 use rand::prelude::*;
 use cobweb::{module::{Module, ModuleId}, events::GlobalEventHandler};
@@ -115,7 +115,7 @@ impl<Strat: Strategy> HoneyBeeBuilder<Strat, ModuleId, Arc<str>, stridul::Socket
         let addr: Address =
             Strat::PeersAddr::from(self.socket.local_addr()).into();
         self.events.subscribe_filter::<EPacketSend, _>(
-            move |f| f.source == addr
+            move |f| f.0.source == addr
         );
         
         HoneyBee { 
@@ -123,6 +123,7 @@ impl<Strat: Strategy> HoneyBeeBuilder<Strat, ModuleId, Arc<str>, stridul::Socket
             name: self.name,
 
             event_handler: self.events,
+            stream_handlers: vec![],
 
             socket_driver_task,
             socket_events: events_receiver,
@@ -147,6 +148,7 @@ pub struct HoneyBee<Strat: Strategy> {
     name: Arc<str>,
 
     event_handler: GlobalEventHandler,
+    stream_handlers: Vec<JoinHandle<()>>,
 
     socket_driver_task: tokio::task::JoinHandle<anyhow::Result<()>>,
     socket_events: flume::Receiver<stridul::DrivingEvent<Strat::Stridul>>,
@@ -161,6 +163,11 @@ impl<Strat: Strategy> Module for HoneyBee<Strat> {
     async fn drive(&mut self) -> anyhow::Result<!> {
         // Listen to the various event sources and calls dedicated functions
         loop {
+            // 'Garbage collect' stream handlers
+            self.stream_handlers = self.stream_handlers.drain(..)
+                .filter(|h| !h.is_finished())
+                .collect();
+
             tokio::select! {
                 packet_send = self.event_handler.next_event_of::<EPacketSend>() => {
                     self.handle_packet_send(&*packet_send).await?;
@@ -180,29 +187,70 @@ impl<Strat: Strategy> HoneyBee<Strat> {
         &mut self, packet_send: &EPacketSend
     ) -> anyhow::Result<()> {
         let src: <Strat::Stridul as stridul::Strategy>::PeersAddr =
-            Strat::PeersAddr::try_from(packet_send.source.clone())
+            Strat::PeersAddr::try_from(packet_send.0.source.clone())
                 .map_err(|_| unreachable!()).unwrap().into();
         let dest: <Strat::Stridul as stridul::Strategy>::PeersAddr =
-            Strat::PeersAddr::try_from(packet_send.destination.clone())
+            Strat::PeersAddr::try_from(packet_send.0.destination.clone())
                 .map_err(|_| anyhow!(
                     "the destination address isn't compatible with this honeybee"
                 )).unwrap().into();
 
         assert_eq!(src, self.socket.local_addr());
 
-        let stream_id = rand::thread_rng().gen();
-        let stream = self.socket.create_stream(
-            stream_id,
-            dest,
-        ).await?;
-        let mut packet_stream = stridul::PacketStream::create(Arc::clone(&stream));
+        let mut stream_id = [0u8; 4];
+        stream_id[0..2].copy_from_slice(
+            &packet_send.0.discriminator.to_be_bytes()
+        );
+        stream_id[2..4].copy_from_slice(
+            &rand::thread_rng().gen::<[u8; 2]>()
+        );
+        let stream_id = u32::from_be_bytes(stream_id);
 
-        let mut x = BytesMut::new();
-        x.extend_from_slice(&packet_send.discriminator.to_be_bytes());
-        x.extend_from_slice(&packet_send.content);
-        packet_stream.send(x.freeze()).await?;
+        let stream = self.socket.create_stream(stream_id, dest).await?;
+        let mut packet_stream = stridul::PacketStream::create(Arc::clone(&stream));
+        packet_stream.send(packet_send.0.content.clone()).await?;
         
         Ok(())
+    }
+
+    /// creates a tokio task to receive packets from from the stream
+    /// this prevents not doing anything else while waiting for packets to be
+    /// sent through the stream
+    /// 
+    /// FIXME: do a timeout or something as streams are cheap to create
+    ///        and can easily be left without ever finishing
+    fn handle_packet_stream(
+        &mut self, mut ps: PacketStream<Strat::Stridul>
+    ) {
+        let events = self.event_handler.reconnect();
+        let stream = Arc::clone(ps.inner());
+        let discriminator = u16::from_be_bytes(
+            stream.id().to_be_bytes()[0..2].try_into().unwrap()
+        );
+        let source: Address = Strat::PeersAddr::from(
+            stream.peer_addr().clone()
+        ).into();
+        let destination: Address = Strat::PeersAddr::from(
+            self.socket.local_addr()
+        ).into();
+
+        let handler = tokio::spawn(async move {
+            while let Some(content) = ps.next().await {
+                let content = content.unwrap();
+                
+                events.emit(EPacketRecv(Packet {
+                    source: source.clone(),
+                    destination: destination.clone(),
+
+                    unreliable: false,
+                    discriminator,
+
+                    content,
+                }));
+            }
+        });
+
+        self.stream_handlers.push(handler);
     }
 
     async fn handle_socket_event(
@@ -211,13 +259,23 @@ impl<Strat: Strategy> HoneyBee<Strat> {
         use stridul::DrivingEvent as DE;
 
         match event {
-            DE::NewStream { stream: _ } => {
-                todo!()
+            DE::NewStream { stream } => {
+                self.handle_packet_stream(PacketStream::create(stream));
+                Ok(())
             },
             DE::Message { data: _, from: _ } => {
                 todo!()
             },
         }
        
+    }
+}
+
+impl<Strat: Strategy> Drop for HoneyBee<Strat> {
+    fn drop(&mut self) {
+        self.socket_driver_task.abort();
+        for j in &self.stream_handlers {
+            j.abort();
+        }
     }
 }

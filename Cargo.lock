@@ -305,6 +305,9 @@ dependencies = [
  "bytes",
  "cobweb",
  "flume",
+ "futures",
+ "log",
+ "ran",
  "rand",
  "static_assertions",
  "stridul",
@@ -556,6 +559,12 @@ checksum = "5267fca4496028628a95160fc423a33e8b2e6af8a5302579e322e4b520293cae"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "ran"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c08865e787c578b3fb43871268946c1f982fcc6b779c7b432a111a1115658773"
 
 [[package]]
 name = "rand"

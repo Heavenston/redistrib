@@ -99,6 +99,8 @@ impl<Strat: Strategy> Socket<Strat> {
         self.socket.local_addr()
     }
 
+    /// Creates a stream with the given ID,
+    /// returns an Error if the stream alreay exists
     pub async fn create_stream(
         self: &Arc<Self>, id: StreamID, peer_addr: Strat::PeersAddr,
     ) -> Result<Arc<Stream<Strat>>, CreateStreamError<Strat>> {
