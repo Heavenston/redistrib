@@ -8,6 +8,7 @@ use crate::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EPacketSend {
+    pub source: Address,
     pub destination: Address,
     pub discriminator: u16,
     pub content: Bytes,
@@ -22,6 +23,7 @@ impl Event for EPacketSend {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EPacketRecv {
     pub source: Address,
+    pub destination: Address,
     pub discriminator: u16,
     pub content: Bytes,
 }

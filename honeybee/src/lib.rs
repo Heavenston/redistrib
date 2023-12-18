@@ -4,18 +4,26 @@
 
 // pub(crate) mod socket;
 pub mod events;
+use bytes::BytesMut;
 pub use events::*;
 pub mod address;
 pub use address::*;
+use tokio::io::AsyncWriteExt;
 
 use std::{sync::Arc, marker::PhantomData, net::SocketAddr};
+
+use futures::{sink::Sink, SinkExt};
+use anyhow::anyhow;
+use rand::prelude::*;
 use cobweb::{module::{Module, ModuleId}, events::GlobalEventHandler};
 
 pub trait Strategy {
     type Stridul: stridul::Strategy;
+    /// Intended to be the same as Self::Stridul but guarentee
+    /// to implement Into<Address> and TryFrom<Address>
     type PeersAddr: From<<Self::Stridul as stridul::Strategy>::PeersAddr> +
                     Into<<Self::Stridul as stridul::Strategy>::PeersAddr> +
-                    Into<Address>;
+                    Into<Address> + TryFrom<Address>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -96,13 +104,19 @@ impl<STRAT, ID, NAME, EVENTS> HoneyBeeBuilder<STRAT, ID, NAME, (), (), EVENTS> {
 }
 
 impl<Strat: Strategy> HoneyBeeBuilder<Strat, ModuleId, Arc<str>, stridul::SocketDriver<Strat::Stridul>, Arc<stridul::Socket<Strat::Stridul>>, GlobalEventHandler> {
-    pub fn build(self) -> HoneyBee<Strat> {
+    pub fn build(mut self) -> HoneyBee<Strat> {
         let (events_sender, events_receiver) = flume::unbounded();
 
         let driver = self.driver;
         let socket_driver_task = tokio::task::spawn(async move {
             driver_task::<Strat>(events_sender, driver).await
         });
+
+        let addr: Address =
+            Strat::PeersAddr::from(self.socket.local_addr()).into();
+        self.events.subscribe_filter::<EPacketSend, _>(
+            move |f| f.source == addr
+        );
         
         HoneyBee { 
             id: self.id,
@@ -149,7 +163,7 @@ impl<Strat: Strategy> Module for HoneyBee<Strat> {
         loop {
             tokio::select! {
                 packet_send = self.event_handler.next_event_of::<EPacketSend>() => {
-                    self.handle_packet_sent(&*packet_send).await?;
+                    self.handle_packet_send(&*packet_send).await?;
                 }
 
                 drive_event = self.socket_events.recv_async() => {
@@ -162,10 +176,33 @@ impl<Strat: Strategy> Module for HoneyBee<Strat> {
 }
 
 impl<Strat: Strategy> HoneyBee<Strat> {
-    async fn handle_packet_sent(
+    async fn handle_packet_send(
         &mut self, packet_send: &EPacketSend
     ) -> anyhow::Result<()> {
-        todo!()
+        let src: <Strat::Stridul as stridul::Strategy>::PeersAddr =
+            Strat::PeersAddr::try_from(packet_send.source.clone())
+                .map_err(|_| unreachable!()).unwrap().into();
+        let dest: <Strat::Stridul as stridul::Strategy>::PeersAddr =
+            Strat::PeersAddr::try_from(packet_send.destination.clone())
+                .map_err(|_| anyhow!(
+                    "the destination address isn't compatible with this honeybee"
+                )).unwrap().into();
+
+        assert_eq!(src, self.socket.local_addr());
+
+        let stream_id = rand::thread_rng().gen();
+        let stream = self.socket.create_stream(
+            stream_id,
+            dest,
+        ).await?;
+        let mut packet_stream = stridul::PacketStream::create(Arc::clone(&stream));
+
+        let mut x = BytesMut::new();
+        x.extend_from_slice(&packet_send.discriminator.to_be_bytes());
+        x.extend_from_slice(&packet_send.content);
+        packet_stream.send(x.freeze()).await?;
+        
+        Ok(())
     }
 
     async fn handle_socket_event(
@@ -181,7 +218,6 @@ impl<Strat: Strategy> HoneyBee<Strat> {
                 todo!()
             },
         }
-        
-        Ok(())
+       
     }
 }

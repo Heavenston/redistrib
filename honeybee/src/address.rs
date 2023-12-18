@@ -45,3 +45,16 @@ impl From<PathBuf> for Address {
         }
     }
 }
+
+impl TryFrom<Address> for SocketAddr {
+    type Error = ();
+
+    fn try_from(value: Address) -> Result<Self, Self::Error> {
+        match value.inner {
+            AddressInner::Ipv4(a) => Ok(SocketAddr::V4(a)),
+            AddressInner::Ipv6(b) => Ok(SocketAddr::V6(b)),
+
+            _ => Err(()),
+        }
+    }
+}
